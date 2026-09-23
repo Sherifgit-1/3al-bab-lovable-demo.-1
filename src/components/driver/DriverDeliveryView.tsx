@@ -59,9 +59,7 @@ export const DriverDeliveryView: React.FC = () => {
         'ASSIGNED_TO_DRIVER',
         'PICKED_UP',
         'OUT_FOR_DELIVERY',
-        'IN_TRANSIT',
         'DRIVER_ARRIVED',
-        'ARRIVED_AT_BOX',
         'ACCESS_AUTHORIZED',
         'OTP_VALIDATED',
         'SMART_BOX_OPENED',
@@ -528,20 +526,6 @@ export const DriverDeliveryView: React.FC = () => {
                 </span>
               </button>
             )}
-
-            {/* Fallback complete if in any other step */}
-            {currentOrder.status !== 'SMART_BOX_OPENED' &&
-              currentOrder.status !== 'PACKAGE_DEPOSITED' &&
-              currentOrder.status !== 'SMART_BOX_SECURED' && (
-                <button
-                  onClick={handleCompleteDelivery}
-                  disabled={isProcessing}
-                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>تأكيد إتمام التسليم النهائي (COMPLETED)</span>
-                </button>
-              )}
           </div>
         </div>
       )}

@@ -47,28 +47,21 @@ export const MerchantDashboard: React.FC = () => {
   const [rejectReason, setRejectReason] = useState<string>('عدم توفر الصنف في المخزون حالياً');
 
   // Filter orders by status
-  const pendingOrders = orders.filter(
-    (o) => o.status === 'PENDING' || o.status === 'CREATED'
-  );
+  const pendingOrders = orders.filter((o) => o.status === 'PENDING');
   const acceptedOrders = orders.filter((o) => o.status === 'ACCEPTED');
   const prepOrders = orders.filter((o) => o.status === 'PREPARING');
-  const readyOrders = orders.filter(
-    (o) => o.status === 'READY' || o.status === 'READY_FOR_PICKUP'
-  );
+  const readyOrders = orders.filter((o) => o.status === 'READY');
   const inDeliveryOrders = orders.filter((o) =>
     [
       'ASSIGNED_TO_DRIVER',
       'PICKED_UP',
       'OUT_FOR_DELIVERY',
-      'IN_TRANSIT',
       'DRIVER_ARRIVED',
-      'ARRIVED_AT_BOX',
       'ACCESS_AUTHORIZED',
       'OTP_VALIDATED',
       'SMART_BOX_OPENED',
       'PACKAGE_DEPOSITED',
       'SMART_BOX_SECURED',
-      'DEPOSITED',
     ].includes(o.status)
   );
   const completedOrders = orders.filter((o) => o.status === 'COMPLETED');

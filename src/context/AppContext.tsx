@@ -404,6 +404,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     value: number;
     phone: string;
     date: string;
+    courierName?: string;
+    courierPhone?: string;
   }): Promise<Order> => {
     const id = `EX-${Math.floor(1000 + Math.random() * 9000)}`;
     const newExt: Order = {
@@ -413,7 +415,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerId: 'cust-1',
       customerName: 'أحمد مصطفى',
       customerPhone: '+20 100 123 4567',
-      merchantId: `ext-${data.merchantName.toLowerCase().replace(/\s+/g, '-')}`,
+      // No internal merchantId required for external orders
       merchantName: data.merchantName,
       smartBoxId: 'BOX-102',
       compartmentId: '01',
@@ -434,16 +436,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       total: data.value,
       deliveryAddress: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس',
       createdAt: 'اليوم، ' + new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-      updatedAt: 'الآن',
+      updatedAt: 'اليوم، ' + new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
       externalDetails: {
         externalMerchant: data.merchantName,
         awbNumber: data.awbNumber,
         approximateValue: data.value,
         notes: `شحنة خارجية مسجلة عبر بوابة العميل - هاتف المستلم: ${data.phone}`,
         expectedDate: data.date,
+        courierName: data.courierName || 'مندوب شركة الشحن الخارجية',
+        courierPhone: data.courierPhone,
       },
     };
 
+    // Create strict 5-minute temporary access authorization for the Smart Box
+    const auth = await authorizationService.createAuthorization({
+      customerId: 'cust-1',
+      customerName: 'أحمد مصطفى',
+      orderId: id,
+      smartBoxId: 'BOX-102',
+      compartmentId: '01',
+      driverName: data.courierName || 'مندوب الشحن الخارجي',
+      delegationType: 'DELIVERY',
+    });
+    newExt.accessAuthorizationId = auth.id;
+
+    setAuthorizations((prev) => [auth, ...prev]);
     setOrders((prev) => [newExt, ...prev]);
     setActiveOrderId(newExt.id);
 
@@ -455,7 +472,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       compartmentId: '01',
       action: 'AUTHORIZATION_CREATED',
       result: 'SUCCESS',
-      details: `تم ربط بوليصة الشحنة الخارجية (${data.awbNumber}) مع تفويض الصندوق الذكي`,
+      details: `تم ربط بوليصة الشحنة الخارجية (${data.awbNumber}) مع تفويض الصندوق الذكي لمدة 5 دقائق`,
     });
 
     await notificationService.notify(
@@ -475,6 +492,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     compartmentId: string;
     expiresInMins?: number;
   }): Promise<TemporaryAccessAuthorization> => {
+    // Deliveries are strictly locked to 5 minutes
+    const effectiveMins = data.type === 'DELIVERY' ? 5 : (data.expiresInMins || 60);
     const auth = await authorizationService.createAuthorization({
       customerId: 'cust-1',
       customerName: 'أحمد مصطفى',
@@ -482,7 +501,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       driverName: data.name,
       smartBoxId: 'BOX-102',
       compartmentId: data.compartmentId,
-      expiresInMinutes: data.expiresInMins || 60,
+      expiresInMinutes: effectiveMins,
       delegationType: data.type,
     });
     setAuthorizations((prev) => [auth, ...prev]);
@@ -649,6 +668,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const boxId = ord?.smartBoxId || 'BOX-102';
     const compId = ord?.compartmentId || '02';
 
+    // Hardware security check: Ensure access has been validated via OTP before unlocking
+    const isAuth = await authorizationService.isAccessAuthorized(boxId, compId, orderId);
+    if (!isAuth) {
+      await auditService.recordSecurityIncident({
+        incidentCode: `INC-DIRECT-OPEN-${Math.floor(Math.random() * 9000 + 1000)}#`,
+        severity: 'HIGH',
+        smartBoxId: boxId,
+        compartmentId: compId,
+        title: 'محاولة فتح الصندوق بدون إكمال التحقق من OTP',
+        description: `حاول المندوب فتح الحجيرة للطلب ${orderId} بدون استيفاء توثيق OTP ساري المفعول`,
+        status: 'ACTIVE',
+        actionTaken: 'تم منع فك القفل وتجميد الأمر',
+        location: 'موقع الصندوق الذكي',
+      });
+      throw new Error('غير مصرح بفتح الصندوق. يرجى إدخال رمز OTP ساري وتوثيقه أولاً.');
+    }
+
     await smartLockService.unlock(boxId, compId);
     setHardwareSim((prev) => ({
       ...prev,
@@ -672,6 +708,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const driverDepositPackage = async (orderId: string, weightKg = 1.4) => {
     const ord = orders.find((o) => o.id === orderId);
+    const boxId = ord?.smartBoxId || 'BOX-102';
+    const compId = ord?.compartmentId || '02';
+
+    // Verify compartment allocation before depositing
+    const compCheck = await smartBoxService.validateCompartmentAccess(boxId, compId, orderId);
+    if (!compCheck.valid) {
+      throw new Error(compCheck.reason || 'الحجيرة غير مخصصة لهذا الطلب');
+    }
+
     await triggerHardwareCycle(weightKg);
 
     await orderService.updateOrderStatus(
@@ -728,6 +773,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         proofOfDelivery: pod,
       }
     );
+
+    // Complete access and mark authorization as USED after verified physical closure
+    await authorizationService.completeAccess(orderId);
 
     setDriverStep(5);
     refreshAuditAndSecurity();

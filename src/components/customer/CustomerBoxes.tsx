@@ -303,21 +303,36 @@ export const CustomerBoxes: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">
-                  مدة الصلاحية (بالدقائق):
-                </label>
-                <select
-                  value={durationMins}
-                  onChange={(e) => setDurationMins(Number(e.target.value))}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500"
-                >
-                  <option value={30}>30 دقيقة</option>
-                  <option value={60}>ساعة واحدة (60 دقيقة)</option>
-                  <option value={180}>3 ساعات</option>
-                  <option value={1440}>24 ساعة (يوم كامل)</option>
-                </select>
-              </div>
+              {delegationType === 'DELIVERY' ? (
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">
+                    مدة الصلاحية الأمنية:
+                  </label>
+                  <div className="p-2.5 rounded-xl bg-cyan-950/60 border border-cyan-700/60 text-cyan-300 flex items-center justify-between">
+                    <span className="font-bold">5 دقائق (معيار أمني مشدد للتسليم)</span>
+                    <span className="text-[10px] bg-cyan-900/80 px-2 py-0.5 rounded text-cyan-200">5-min Window</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    تنفيذاً للبروتوكول الأمني الموحد، تصاريح التوصيل محددة بدقة بـ 5 دقائق فقط لمنع استغلال الرمز.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">
+                    مدة الصلاحية (بالدقائق):
+                  </label>
+                  <select
+                    value={durationMins}
+                    onChange={(e) => setDurationMins(Number(e.target.value))}
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value={30}>30 دقيقة</option>
+                    <option value={60}>ساعة واحدة (60 دقيقة)</option>
+                    <option value={180}>3 ساعات</option>
+                    <option value={1440}>24 ساعة (يوم كامل)</option>
+                  </select>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 pt-3">
                 <button

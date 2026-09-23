@@ -45,17 +45,14 @@ export const CustomerHome: React.FC = () => {
       case 'PICKED_UP':
         return 'المندوب استلم الطلب';
       case 'OUT_FOR_DELIVERY':
-      case 'IN_TRANSIT':
         return 'المندوب في الطريق';
       case 'DRIVER_ARRIVED':
-      case 'ARRIVED_AT_BOX':
         return 'المندوب وصل';
       case 'ACCESS_AUTHORIZED':
       case 'OTP_VALIDATED':
       case 'SMART_BOX_OPENED':
         return 'جاري تسليم الطلب للصندوق';
       case 'PACKAGE_DEPOSITED':
-      case 'DEPOSITED':
         return 'تم إيداع الطلب';
       case 'SMART_BOX_SECURED':
         return 'تم تأمين الصندوق';
@@ -74,9 +71,9 @@ export const CustomerHome: React.FC = () => {
 
   const getProgressWidth = (status: string) => {
     if (status === 'COMPLETED') return 'w-full';
-    if (status === 'SMART_BOX_SECURED' || status === 'PACKAGE_DEPOSITED' || status === 'DEPOSITED') return 'w-5/6';
-    if (status === 'SMART_BOX_OPENED' || status === 'OTP_VALIDATED' || status === 'ACCESS_AUTHORIZED' || status === 'DRIVER_ARRIVED' || status === 'ARRIVED_AT_BOX') return 'w-3/4';
-    if (status === 'OUT_FOR_DELIVERY' || status === 'IN_TRANSIT') return 'w-1/2';
+    if (status === 'SMART_BOX_SECURED' || status === 'PACKAGE_DEPOSITED') return 'w-5/6';
+    if (status === 'SMART_BOX_OPENED' || status === 'OTP_VALIDATED' || status === 'ACCESS_AUTHORIZED' || status === 'DRIVER_ARRIVED') return 'w-3/4';
+    if (status === 'OUT_FOR_DELIVERY') return 'w-1/2';
     if (status === 'PICKED_UP' || status === 'ASSIGNED_TO_DRIVER') return 'w-1/3';
     if (status === 'READY' || status === 'PREPARING') return 'w-1/4';
     return 'w-1/6';

@@ -17,6 +17,7 @@ import {
   OrderItem,
   CompartmentSize,
   OrderType,
+  ExternalOrderDetails,
 } from '../types';
 
 export interface LockStateResult {
@@ -69,7 +70,8 @@ export interface ISmartBoxService {
   reserveCompartment(boxId: string, compartmentId: string, orderId: string): Promise<boolean>;
   releaseCompartment(boxId: string, compartmentId: string): Promise<boolean>;
   updateWeight(boxId: string, compartmentId: string, weightKg: number): Promise<void>;
-  simulatePhysicalCycle(boxId: string, compartmentId: string, packageWeightKg: number): Promise<void>;
+  simulatePhysicalCycle(boxId: string, compartmentId: string, packageWeightKg: number, orderId?: string): Promise<void>;
+  validateCompartmentAccess(boxId: string, compartmentId: string, orderId: string): Promise<{ valid: boolean; reason?: string }>;
 }
 
 /**
@@ -130,6 +132,8 @@ export interface IAuthorizationService {
   revokeAuthorization(authId: string, reason: string): Promise<boolean>;
   getAuthorizationByOrder(orderId: string): Promise<TemporaryAccessAuthorization | undefined>;
   getAuthorizationsForBox(boxId: string): Promise<TemporaryAccessAuthorization[]>;
+  completeAccess(orderId: string): Promise<boolean>;
+  isAccessAuthorized(boxId: string, compartmentId: string, orderId: string): Promise<boolean>;
 }
 
 /**
@@ -166,7 +170,7 @@ export interface CreateOrderParams {
   customerId: string;
   customerName?: string;
   customerPhone?: string;
-  merchantId: string;
+  merchantId?: string; // Optional for EXTERNAL_ORDER
   merchantName?: string;
   smartBoxId: string;
   compartmentId?: string;
@@ -179,6 +183,7 @@ export interface CreateOrderParams {
   deliveryAddress?: string;
   deliveryNotes?: string;
   orderType?: OrderType;
+  externalDetails?: ExternalOrderDetails;
 }
 
 export interface IOrderService {

@@ -73,7 +73,7 @@ export const AdminDirectory: React.FC = () => {
   );
 
   const filteredOrders = orders.filter(
-    (o) => o.id.includes(searchQuery) || o.customerName.includes(searchQuery) || o.merchantName.includes(searchQuery)
+    (o) => o.id.includes(searchQuery) || o.customerName.includes(searchQuery) || (o.merchantName && o.merchantName.includes(searchQuery))
   );
 
   return (

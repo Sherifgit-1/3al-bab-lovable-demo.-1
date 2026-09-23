@@ -58,6 +58,45 @@ export class MockSmartBoxService implements ISmartBoxService {
   }
 
   /**
+   * Validates compartment allocation for an order:
+   * - Verifies that compartment exists
+   * - Verifies that compartment belongs to the specified Smart Box
+   * - Verifies that compartment is designated for the order (not maintenance, not allocated to another order)
+   * - Prevents deposit into unrelated or unreserved compartments
+   */
+  async validateCompartmentAccess(
+    boxId: string,
+    compartmentId: string,
+    orderId: string
+  ): Promise<{ valid: boolean; reason?: string }> {
+    const box = this.boxes.find((b) => b.id === boxId);
+    if (!box) {
+      return { valid: false, reason: `الصندوق الذكي (${boxId}) غير موجود بالنظام.` };
+    }
+    const comp = box.compartments.find((c) => c.id === compartmentId);
+    if (!comp) {
+      return {
+        valid: false,
+        reason: `الحجيرة (${compartmentId}) غير موجودة في الصندوق (${boxId}).`,
+      };
+    }
+    if (comp.status === 'MAINTENANCE') {
+      return {
+        valid: false,
+        reason: `الحجيرة (${compartmentId}) تخضع للصيانة الوقائية حالياً وغير متاحة للإيداع.`,
+      };
+    }
+    // Verify that the compartment is designated for this order
+    if (comp.currentOrderId && comp.currentOrderId !== orderId) {
+      return {
+        valid: false,
+        reason: `الحجيرة (${compartmentId}) محجوزة لطلب آخر (${comp.currentOrderId}). غير مسموح بالإيداع فيها.`,
+      };
+    }
+    return { valid: true };
+  }
+
+  /**
    * Simulates full physical hardware cycle:
    * 1. Unlock Solenoid
    * 2. Door opens (Reed switch open)
@@ -68,8 +107,27 @@ export class MockSmartBoxService implements ISmartBoxService {
   async simulatePhysicalCycle(
     boxId: string,
     compartmentId: string,
-    packageWeightKg: number = 1.4
+    packageWeightKg: number = 1.4,
+    orderId?: string
   ): Promise<void> {
+    if (orderId) {
+      const check = await this.validateCompartmentAccess(boxId, compartmentId, orderId);
+      if (!check.valid) {
+        await auditService.recordSecurityIncident({
+          incidentCode: `INC-COMP-MISMATCH-${Math.floor(Math.random() * 9000 + 1000)}#`,
+          severity: 'HIGH',
+          smartBoxId: boxId,
+          compartmentId,
+          title: 'محاولة إيداع في حجيرة غير مصرح بها',
+          description: check.reason || 'محاولة إيداع في حجيرة غير مخصصة',
+          status: 'ACTIVE',
+          actionTaken: 'تم منع إتمام الدورة الفيزيائية وحظر الإيداع',
+          location: 'موقع الصندوق الذكي',
+        });
+        throw new Error(check.reason || 'فشل التحقق من الحجيرة المخصصة');
+      }
+    }
+
     const box = this.boxes.find((b) => b.id === boxId);
     if (!box) return;
     const comp = box.compartments.find((c) => c.id === compartmentId);

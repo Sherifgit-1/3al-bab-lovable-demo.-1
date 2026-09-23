@@ -63,7 +63,7 @@ export const CustomerTracking: React.FC = () => {
     {
       id: 'PENDING_ACCEPTED',
       label: 'طلبك تم استلامه',
-      statuses: ['PENDING', 'ACCEPTED', 'CREATED'],
+      statuses: ['PENDING', 'ACCEPTED'],
     },
     {
       id: 'PREPARING',
@@ -73,7 +73,7 @@ export const CustomerTracking: React.FC = () => {
     {
       id: 'READY',
       label: 'الطلب جاهز',
-      statuses: ['READY', 'READY_FOR_PICKUP', 'ASSIGNED_TO_DRIVER'],
+      statuses: ['READY', 'ASSIGNED_TO_DRIVER'],
     },
     {
       id: 'PICKED_UP',
@@ -83,12 +83,12 @@ export const CustomerTracking: React.FC = () => {
     {
       id: 'OUT_FOR_DELIVERY',
       label: 'المندوب في الطريق',
-      statuses: ['OUT_FOR_DELIVERY', 'IN_TRANSIT'],
+      statuses: ['OUT_FOR_DELIVERY'],
     },
     {
       id: 'DRIVER_ARRIVED',
       label: 'المندوب وصل',
-      statuses: ['DRIVER_ARRIVED', 'ARRIVED_AT_BOX'],
+      statuses: ['DRIVER_ARRIVED'],
     },
     {
       id: 'DEPOSITING',
@@ -98,7 +98,7 @@ export const CustomerTracking: React.FC = () => {
     {
       id: 'PACKAGE_DEPOSITED',
       label: 'تم إيداع الطلب',
-      statuses: ['PACKAGE_DEPOSITED', 'DEPOSITED'],
+      statuses: ['PACKAGE_DEPOSITED'],
     },
     {
       id: 'SMART_BOX_SECURED',
@@ -138,24 +138,20 @@ export const CustomerTracking: React.FC = () => {
       case 'PREPARING':
         return { text: 'جاري تجهيز وتغليف طلبك بعناية', color: 'text-cyan-400 bg-cyan-950/80 border-cyan-800' };
       case 'READY':
-      case 'READY_FOR_PICKUP':
         return { text: 'الطلب جاهز وبانتظار استلام المندوب', color: 'text-cyan-400 bg-cyan-950/80 border-cyan-800' };
       case 'ASSIGNED_TO_DRIVER':
         return { text: 'تم إسناد الطلب للمندوب', color: 'text-blue-400 bg-blue-950/80 border-blue-800' };
       case 'PICKED_UP':
         return { text: 'المندوب استلم الطلب من المتجر', color: 'text-blue-400 bg-blue-950/80 border-blue-800' };
       case 'OUT_FOR_DELIVERY':
-      case 'IN_TRANSIT':
         return { text: 'المندوب في الطريق إلى موقعك', color: 'text-indigo-400 bg-indigo-950/80 border-indigo-800' };
       case 'DRIVER_ARRIVED':
-      case 'ARRIVED_AT_BOX':
         return { text: 'المندوب وصل أمام الصندوق الذكي', color: 'text-amber-400 bg-amber-950/80 border-amber-800' };
       case 'ACCESS_AUTHORIZED':
       case 'OTP_VALIDATED':
       case 'SMART_BOX_OPENED':
         return { text: 'جاري تسليم الطلب للصندوق الذكي', color: 'text-cyan-400 bg-cyan-950/80 border-cyan-800' };
       case 'PACKAGE_DEPOSITED':
-      case 'DEPOSITED':
         return { text: 'تم إيداع الطلب بالحجيرة بنجاح', color: 'text-emerald-400 bg-emerald-950/80 border-emerald-800' };
       case 'SMART_BOX_SECURED':
         return { text: 'تم تأمين الصندوق وإحكام القفل', color: 'text-emerald-400 bg-emerald-950/80 border-emerald-800' };
@@ -236,7 +232,7 @@ export const CustomerTracking: React.FC = () => {
             </span>
 
             {/* Cancel Button if order is still PENDING */}
-            {(activeOrder?.status === 'PENDING' || activeOrder?.status === 'CREATED') && (
+            {activeOrder?.status === 'PENDING' && (
               <button
                 onClick={handleCancelOrder}
                 disabled={isCancelling}

@@ -115,7 +115,7 @@ export class MockOrderService implements IOrderService {
     });
     const orderId = `TW-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const merchant = INITIAL_MERCHANTS.find((m) => m.id === params.merchantId);
+    const merchant = params.merchantId ? INITIAL_MERCHANTS.find((m) => m.id === params.merchantId) : undefined;
     const subtotal =
       params.subtotal ??
       params.items.reduce((acc, i) => acc + i.price * i.quantity, 0);
@@ -131,8 +131,8 @@ export class MockOrderService implements IOrderService {
       customerName: params.customerName || 'أحمد مصطفى',
       customerPhone: params.customerPhone || '+20 100 123 4567',
       merchantId: params.merchantId,
-      merchantName: params.merchantName || merchant?.name || 'متجر معتمد',
-      merchantBranch: merchant?.address ? `فرع ${merchant.address.split('-')[0].trim()}` : 'الفرع الرئيسي',
+      merchantName: params.merchantName || merchant?.name || (params.externalDetails ? params.externalDetails.externalMerchant : 'متجر معتمد'),
+      merchantBranch: merchant?.address ? `فرع ${merchant.address.split('-')[0].trim()}` : (params.orderType === 'EXTERNAL_ORDER' ? 'شحنة متجر خارجي' : 'الفرع الرئيسي'),
       smartBoxId: params.smartBoxId,
       compartmentId: params.compartmentId || '02',
       compartmentSize: params.compartmentSize,
@@ -151,6 +151,7 @@ export class MockOrderService implements IOrderService {
       updatedAt: `اليوم، ${timestampStr}`,
       estimatedDeliveryTime: 'خلال 25 دقيقة',
       accessAuthorizationId: `AUTH-${orderId}`,
+      externalDetails: params.externalDetails,
     };
 
     this.orders.unshift(newOrder);
@@ -269,7 +270,7 @@ export class MockOrderService implements IOrderService {
     const order = this.orders.find((o) => o.id === orderId);
     if (!order) return { success: false, message: 'الطلب غير موجود.' };
 
-    if (role === 'CUSTOMER' && order.status !== 'PENDING' && order.status !== 'CREATED') {
+    if (role === 'CUSTOMER' && order.status !== 'PENDING') {
       return {
         success: false,
         message: 'لا يمكن إلغاء الطلب بعد اعتماده وبدء تجهيزه من قبل المتجر.',
@@ -317,14 +318,14 @@ export class MockOrderService implements IOrderService {
     // Cancellation & Rejection handling
     if (target === 'CANCELLED') {
       if (role === 'CUSTOMER') {
-        if (current === 'PENDING' || current === 'CREATED') return { allowed: true };
+        if (current === 'PENDING') return { allowed: true };
         return { allowed: false, reason: 'لا يمكن للعميل إلغاء الطلب بعد اعتماده من المتجر.' };
       }
       return { allowed: true };
     }
 
     if (target === 'REJECTED') {
-      if (role === 'MERCHANT' && (current === 'PENDING' || current === 'CREATED')) {
+      if (role === 'MERCHANT' && current === 'PENDING') {
         return { allowed: true };
       }
       return { allowed: false, reason: 'لا يمكن رفض الطلب إلا وهو بحالة جديدة معلقة (PENDING).' };
@@ -344,16 +345,16 @@ export class MockOrderService implements IOrderService {
         };
 
       case 'MERCHANT':
-        if (current === 'PENDING' || current === 'CREATED') {
+        if (current === 'PENDING') {
           if (target === 'ACCEPTED') return { allowed: true };
         }
         if (current === 'ACCEPTED') {
           if (target === 'PREPARING') return { allowed: true };
         }
         if (current === 'PREPARING') {
-          if (target === 'READY' || target === 'READY_FOR_PICKUP') return { allowed: true };
+          if (target === 'READY') return { allowed: true };
         }
-        if (current === 'READY' || current === 'READY_FOR_PICKUP') {
+        if (current === 'READY') {
           if (target === 'ASSIGNED_TO_DRIVER') return { allowed: true };
         }
         if (target === 'COMPLETED') {
@@ -368,28 +369,28 @@ export class MockOrderService implements IOrderService {
         };
 
       case 'DRIVER':
-        if (current === 'READY' || current === 'READY_FOR_PICKUP' || current === 'ASSIGNED_TO_DRIVER') {
+        if (current === 'READY' || current === 'ASSIGNED_TO_DRIVER') {
           if (target === 'PICKED_UP') return { allowed: true };
         }
         if (current === 'PICKED_UP') {
-          if (target === 'OUT_FOR_DELIVERY' || target === 'IN_TRANSIT') return { allowed: true };
+          if (target === 'OUT_FOR_DELIVERY') return { allowed: true };
         }
-        if (current === 'OUT_FOR_DELIVERY' || current === 'IN_TRANSIT') {
-          if (target === 'DRIVER_ARRIVED' || target === 'ARRIVED_AT_BOX') return { allowed: true };
+        if (current === 'OUT_FOR_DELIVERY') {
+          if (target === 'DRIVER_ARRIVED') return { allowed: true };
         }
-        if (current === 'DRIVER_ARRIVED' || current === 'ARRIVED_AT_BOX') {
-          if (target === 'ACCESS_AUTHORIZED' || target === 'AUTHORIZING') return { allowed: true };
+        if (current === 'DRIVER_ARRIVED') {
+          if (target === 'ACCESS_AUTHORIZED') return { allowed: true };
         }
-        if (current === 'ACCESS_AUTHORIZED' || current === 'AUTHORIZING') {
+        if (current === 'ACCESS_AUTHORIZED') {
           if (target === 'OTP_VALIDATED') return { allowed: true };
         }
         if (current === 'OTP_VALIDATED') {
           if (target === 'SMART_BOX_OPENED') return { allowed: true };
         }
         if (current === 'SMART_BOX_OPENED') {
-          if (target === 'PACKAGE_DEPOSITED' || target === 'DEPOSITED') return { allowed: true };
+          if (target === 'PACKAGE_DEPOSITED') return { allowed: true };
         }
-        if (current === 'PACKAGE_DEPOSITED' || current === 'DEPOSITED') {
+        if (current === 'PACKAGE_DEPOSITED') {
           if (target === 'SMART_BOX_SECURED') return { allowed: true };
         }
         if (current === 'SMART_BOX_SECURED') {
@@ -412,7 +413,13 @@ export class MockOrderService implements IOrderService {
     actorId?: string,
     actorName?: string
   ) {
-    const actor = actorName || (role === 'CUSTOMER' ? order.customerName : role === 'MERCHANT' ? order.merchantName : order.driverName || 'المندوب');
+    const actor: string =
+      actorName ||
+      (role === 'CUSTOMER'
+        ? order.customerName
+        : role === 'MERCHANT'
+        ? order.merchantName || 'المتجر'
+        : order.driverName || 'المندوب');
 
     switch (newStatus) {
       case 'ACCEPTED':
@@ -454,7 +461,6 @@ export class MockOrderService implements IOrderService {
         break;
 
       case 'READY':
-      case 'READY_FOR_PICKUP':
         await auditService.recordEvent({
           actor,
           actorRole: role,
@@ -524,7 +530,6 @@ export class MockOrderService implements IOrderService {
         break;
 
       case 'OUT_FOR_DELIVERY':
-      case 'IN_TRANSIT':
         await auditService.recordEvent({
           actor,
           actorRole: role,
@@ -544,7 +549,6 @@ export class MockOrderService implements IOrderService {
         break;
 
       case 'DRIVER_ARRIVED':
-      case 'ARRIVED_AT_BOX':
         await auditService.recordEvent({
           actor,
           actorRole: role,
@@ -621,7 +625,6 @@ export class MockOrderService implements IOrderService {
         break;
 
       case 'PACKAGE_DEPOSITED':
-      case 'DEPOSITED':
         await auditService.recordEvent({
           actor,
           actorRole: role,

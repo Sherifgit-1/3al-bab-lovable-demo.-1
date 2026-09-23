@@ -24,14 +24,7 @@ export type OrderStatus =
   | 'COMPLETED'
   | 'REJECTED'
   | 'CANCELLED'
-  | 'DELIVERY_FAILED'
-  // Backward compatibility aliases
-  | 'CREATED'
-  | 'READY_FOR_PICKUP'
-  | 'IN_TRANSIT'
-  | 'ARRIVED_AT_BOX'
-  | 'AUTHORIZING'
-  | 'DEPOSITED';
+  | 'DELIVERY_FAILED';
 
 export type AuthorizationStatus =
   | 'PENDING'
@@ -115,6 +108,9 @@ export interface TemporaryAccessAuthorization {
   isLoadCellVerified: boolean;
   geofenceRadiusMeters: number;
   delegationType: 'DELIVERY' | 'FAMILY' | 'VISITOR';
+  otpValidated?: boolean;
+  otpValidatedAt?: string;
+  isOtpConsumed?: boolean;
 }
 
 export type AuditAction =
@@ -132,6 +128,7 @@ export type AuditAction =
   | 'ORDER_REJECTED'
   | 'DRIVER_ARRIVED'
   | 'ACCESS_REQUESTED'
+  | 'ACCESS_GRANTED'
   | 'AUTHORIZATION_CREATED'
   | 'OTP_GENERATED'
   | 'OTP_VALIDATED'
@@ -190,6 +187,16 @@ export interface ProofOfDelivery {
   };
 }
 
+export interface ExternalOrderDetails {
+  externalMerchant: string;
+  awbNumber: string;
+  notes?: string;
+  approximateValue?: number;
+  expectedDate?: string;
+  courierName?: string;
+  courierPhone?: string;
+}
+
 export interface Order {
   id: string; // 'TW-8921'
   orderNumber?: string;
@@ -197,8 +204,8 @@ export interface Order {
   customerId: string;
   customerName: string;
   customerPhone: string;
-  merchantId: string;
-  merchantName: string;
+  merchantId?: string; // Optional for EXTERNAL_ORDER
+  merchantName?: string;
   merchantBranch?: string;
   driverId?: string;
   driverName?: string;
@@ -225,13 +232,7 @@ export interface Order {
   proofOfDelivery?: ProofOfDelivery;
   authorizationId?: string;
   accessAuthorizationId?: string;
-  externalDetails?: {
-    externalMerchant: string;
-    awbNumber: string;
-    notes?: string;
-    approximateValue?: number;
-    expectedDate?: string;
-  };
+  externalDetails?: ExternalOrderDetails;
 }
 
 export interface Merchant {
