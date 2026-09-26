@@ -199,8 +199,6 @@ export const LoginScreen: React.FC = () => {
                   />
                   <span className="text-xs text-slate-400">تذكرني في هذه الجلسة</span>
                 </label>
-
-                <span className="text-[11px] text-slate-500 font-mono">Demo123!</span>
               </div>
 
               {/* Submit Button */}
@@ -299,8 +297,7 @@ export const LoginScreen: React.FC = () => {
           {/* Prototype / Demo Notice */}
           <div className="mt-4 p-3 rounded-2xl bg-slate-900/50 border border-slate-800/80 text-center text-xs text-slate-400">
             <p className="text-[11px] leading-relaxed">
-              هذه بيئة نموذج أولي تفاعلي. تم تهيئة الحسابات التجريبية بكلمة المرور المشتركة{' '}
-              <span className="font-mono text-cyan-400 font-bold">Demo123!</span>
+              بيئة تجريبية تفاعلية. يمكنك استخدام &quot;تعبئة&quot; أو &quot;دخول فوري&quot; لتسجيل الدخول بأي حساب تجريبي دون الحاجة لكتابة البيانات يدوياً.
             </p>
           </div>
         </div>
@@ -315,13 +312,10 @@ export const LoginScreen: React.FC = () => {
             </div>
             <h3 className="text-base font-bold text-white mb-2">استعادة كلمة المرور (تجريبي)</h3>
             <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              في النسخة التجريبية الحالية، جميع الحسابات تمتلك كلمة مرور افتراضية موحدة:
+              في هذه النسخة التجريبية، يمكنك النقر على &quot;دخول فوري&quot; أو &quot;تعبئة&quot; في بطاقة الحساب المناسب بالأسفل لتسجيل الدخول مباشرةً.
             </p>
-            <div className="p-3 rounded-xl bg-slate-950 border border-cyan-800/40 text-center font-mono text-cyan-300 font-bold text-sm mb-4">
-              Demo123!
-            </div>
             <p className="text-[11px] text-slate-500 mb-5">
-              سيتم تفعيل خدمة التحقق عبر الرسائل النصية القصيرة (SMS OTP) في الإصدار القادم.
+              سيتم تفعيل خدمة التحقق عبر الرسائل النصية القصيرة (SMS OTP) في بيئة الإنتاج.
             </p>
             <button
               onClick={() => setShowForgotPasswordModal(false)}
