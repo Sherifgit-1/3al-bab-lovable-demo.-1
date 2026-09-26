@@ -13,61 +13,70 @@ import { IOrderService, CreateOrderParams } from './interfaces';
 import { INITIAL_ORDERS, INITIAL_MERCHANTS, INITIAL_DRIVERS } from '../data/mockData';
 import { auditService } from './AuditService';
 import { notificationService } from './NotificationService';
+import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage';
+
+export const DEFAULT_TW_1001_ORDER: Order = {
+  id: 'TW-1001',
+  orderNumber: 'TW-1001',
+  orderType: 'INTERNAL_ORDER',
+  customerId: 'cust-1',
+  customerName: 'أحمد مصطفى (Demo Customer)',
+  customerPhone: '+20 100 123 4567',
+  merchantId: 'merch-1',
+  merchantName: 'ميدل إيست تيك (Demo Merchant)',
+  merchantBranch: 'فرع التجمع الخامس',
+  driverId: 'drv-1',
+  driverName: 'إسلام عامر (Demo Driver)',
+  driverPhone: '+20 111 876 5432',
+  driverVehicle: 'فان كهربائية EV-04',
+  smartBoxId: 'BOX-102',
+  compartmentId: '01',
+  compartmentSize: 'S',
+  status: 'PENDING',
+  items: [
+    {
+      id: 'item-demo-1',
+      name: 'شاحن أنكر نانو 65W GaN فائق السرعة',
+      specs: 'اللون: أسود داكن • أصلي 100%',
+      quantity: 1,
+      price: 850,
+    },
+    {
+      id: 'item-demo-2',
+      name: 'سماعة بلوتوث Soundcore اللاسلكية',
+      specs: 'عزل ضوضاء فعال ANC • بطارية 32 ساعة',
+      quantity: 1,
+      price: 580,
+    },
+  ],
+  subtotal: 1430,
+  deliveryFee: 0,
+  discount: 45,
+  tax: 0,
+  total: 1430,
+  deliveryAddress: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس، القاهرة',
+  deliveryNotes: 'يرجى الإيداع في الحجيرة 01 (S) بالصندوق الذكي الرئيسي BOX-102',
+  createdAt: 'اليوم، 10:00 ص',
+  updatedAt: 'اليوم، 10:00 ص',
+  estimatedDeliveryTime: 'خلال 20 دقيقة',
+  customerConfirmed: false,
+  merchantConfirmed: false,
+};
 
 export class MockOrderService implements IOrderService {
-  private orders: Order[] = [...INITIAL_ORDERS];
+  private orders: Order[] = [];
   private listeners: ((orders: Order[]) => void)[] = [];
 
   constructor() {
-    // Ensure Demo Order TW-1001 is ready for testing if not already present
-    if (!this.orders.some((o) => o.id === 'TW-1001')) {
-      const demoOrder: Order = {
-        id: 'TW-1001',
-        orderNumber: 'TW-1001',
-        orderType: 'INTERNAL_ORDER',
-        customerId: 'cust-1',
-        customerName: 'أحمد مصطفى (Demo Customer)',
-        customerPhone: '+20 100 123 4567',
-        merchantId: 'merch-1',
-        merchantName: 'ميدل إيست تيك (Demo Merchant)',
-        merchantBranch: 'فرع التجمع الخامس',
-        driverId: 'drv-1',
-        driverName: 'إسلام عامر (Demo Driver)',
-        driverPhone: '+20 111 876 5432',
-        driverVehicle: 'فان كهربائية EV-04',
-        smartBoxId: 'BOX-102',
-        compartmentId: '02',
-        compartmentSize: 'M',
-        status: 'PENDING',
-        items: [
-          {
-            id: 'item-demo-1',
-            name: 'شاحن أنكر نانو 65W GaN فائق السرعة',
-            specs: 'اللون: أسود داكن • أصلي 100%',
-            quantity: 1,
-            price: 850,
-          },
-          {
-            id: 'item-demo-2',
-            name: 'سماعة بلوتوث Soundcore اللاسلكية',
-            specs: 'عزل ضوضاء فعال ANC • بطارية 32 ساعة',
-            quantity: 1,
-            price: 580,
-          },
-        ],
-        subtotal: 1430,
-        deliveryFee: 0,
-        discount: 45,
-        tax: 0,
-        total: 1430,
-        deliveryAddress: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس، القاهرة',
-        deliveryNotes: 'يرجى الإيداع في الحجيرة M بالصندوق الذكي الرئيسي BOX-102',
-        createdAt: 'اليوم، 10:00 ص',
-        updatedAt: 'اليوم، 10:00 ص',
-        estimatedDeliveryTime: 'خلال 20 دقيقة',
-        accessAuthorizationId: 'AUTH-1001',
-      };
-      this.orders.unshift(demoOrder);
+    const stored = loadFromStorage<Order[] | null>(DEMO_STORAGE_KEYS.ORDERS, null);
+    if (stored && Array.isArray(stored) && stored.length > 0) {
+      this.orders = stored;
+    } else {
+      this.orders = [...INITIAL_ORDERS];
+      if (!this.orders.some((o) => o.id === 'TW-1001')) {
+        this.orders.unshift({ ...DEFAULT_TW_1001_ORDER });
+      }
+      saveToStorage(DEMO_STORAGE_KEYS.ORDERS, this.orders);
     }
   }
 
@@ -79,8 +88,30 @@ export class MockOrderService implements IOrderService {
   }
 
   private notifyListeners() {
+    saveToStorage(DEMO_STORAGE_KEYS.ORDERS, this.orders);
     const cloned = [...this.orders];
     this.listeners.forEach((l) => l(cloned));
+  }
+
+  getAllOrdersSync(): Order[] {
+    return [...this.orders];
+  }
+
+  updateOrderDirectly(orderId: string, updates: Partial<Order>): Order | undefined {
+    const order = this.orders.find((o) => o.id === orderId);
+    if (!order) return undefined;
+    Object.assign(order, updates);
+    this.notifyListeners();
+    return order;
+  }
+
+  resetToSeedData(): Order[] {
+    this.orders = [...INITIAL_ORDERS];
+    if (!this.orders.some((o) => o.id === 'TW-1001')) {
+      this.orders.unshift({ ...DEFAULT_TW_1001_ORDER });
+    }
+    this.notifyListeners();
+    return [...this.orders];
   }
 
   async getAllOrders(): Promise<Order[]> {
@@ -237,6 +268,181 @@ export class MockOrderService implements IOrderService {
     return { success: true, message: 'تم تحديث حالة الطلب بنجاح.', order };
   }
 
+  async confirmOrderCustomer(orderId: string): Promise<{ success: boolean; message: string; order?: Order }> {
+    const order = this.orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'الطلب غير موجود.' };
+
+    const nowStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    order.customerConfirmed = true;
+    order.customerConfirmedAt = `اليوم، ${nowStr}`;
+
+    await auditService.recordEvent({
+      actor: order.customerName,
+      actorRole: 'CUSTOMER',
+      orderId: order.id,
+      smartBoxId: order.smartBoxId,
+      compartmentId: order.compartmentId,
+      action: 'ORDER_ACCEPTED',
+      result: 'SUCCESS',
+      details: `العميل (${order.customerName}) أكد تفاصيل الطلب والأسعار #${order.id}`,
+    });
+
+    if (order.merchantConfirmed) {
+      order.status = 'CONFIRMED';
+      order.confirmedAt = `اليوم، ${nowStr}`;
+      await auditService.recordEvent({
+        actor: 'نظام إدارة الطلبات',
+        actorRole: 'ADMIN',
+        orderId: order.id,
+        smartBoxId: order.smartBoxId,
+        compartmentId: order.compartmentId,
+        action: 'ORDER_ACCEPTED',
+        result: 'SUCCESS',
+        details: `اكتمل التأكيد المزدوج للطلب #${order.id} من العميل والمتجر بنجاح. متاح الآن توليد رمز الدخول المؤقت.`,
+      });
+      await notificationService.notify(
+        'تم تأكيد الطلب من الطرفين',
+        `تم تأكيد طلبك #${order.id} بنجاح. يمكنك الآن توليد رمز OTP للصندوق الذكي.`,
+        'ORDER',
+        { orderId: order.id, smartBoxId: order.smartBoxId }
+      );
+    } else {
+      await notificationService.notify(
+        'تأكيد العميل للطلب',
+        `قام العميل بتأكيد الطلب #${order.id} وبانتظار تأكيد المتجر`,
+        'ORDER',
+        { orderId: order.id, smartBoxId: order.smartBoxId }
+      );
+    }
+
+    this.notifyListeners();
+    return { success: true, message: 'تم تسجيل تأكيد العميل بنجاح.', order };
+  }
+
+  async confirmOrderMerchant(orderId: string): Promise<{ success: boolean; message: string; order?: Order }> {
+    const order = this.orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'الطلب غير موجود.' };
+
+    const nowStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    order.merchantConfirmed = true;
+    order.merchantConfirmedAt = `اليوم، ${nowStr}`;
+
+    await auditService.recordEvent({
+      actor: order.merchantName || 'المتجر',
+      actorRole: 'MERCHANT',
+      orderId: order.id,
+      smartBoxId: order.smartBoxId,
+      compartmentId: order.compartmentId,
+      action: 'ORDER_ACCEPTED',
+      result: 'SUCCESS',
+      details: `المتجر (${order.merchantName}) أكد توفر الأصناف وإمكانية التوصيل للطلب #${order.id}`,
+    });
+
+    if (order.customerConfirmed) {
+      order.status = 'CONFIRMED';
+      order.confirmedAt = `اليوم، ${nowStr}`;
+      await auditService.recordEvent({
+        actor: 'نظام إدارة الطلبات',
+        actorRole: 'ADMIN',
+        orderId: order.id,
+        smartBoxId: order.smartBoxId,
+        compartmentId: order.compartmentId,
+        action: 'ORDER_ACCEPTED',
+        result: 'SUCCESS',
+        details: `اكتمل التأكيد المزدوج للطلب #${order.id} من العميل والمتجر بنجاح. متاح الآن توليد رمز الدخول المؤقت.`,
+      });
+      await notificationService.notify(
+        'تم تأكيد الطلب من الطرفين',
+        `تم تأكيد طلبك #${order.id} بنجاح من المتجر. يمكنك الآن توليد رمز OTP للصندوق الذكي.`,
+        'ORDER',
+        { orderId: order.id, smartBoxId: order.smartBoxId }
+      );
+    } else {
+      await notificationService.notify(
+        'تأكيد المتجر للطلب',
+        `قام المتجر بتأكيد توفر طلبك #${order.id}، يرجى مراجعة المحادثة والتأكيد من طرفك`,
+        'ORDER',
+        { orderId: order.id, smartBoxId: order.smartBoxId }
+      );
+    }
+
+    this.notifyListeners();
+    return { success: true, message: 'تم تسجيل تأكيد المتجر بنجاح.', order };
+  }
+
+  async attachPODPhoto(
+    orderId: string,
+    photoUrl: string
+  ): Promise<{ success: boolean; message: string; order?: Order }> {
+    const order = this.orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'الطلب غير موجود.' };
+
+    const nowStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    order.proofOfDelivery = {
+      photoUrl,
+      weightKg: 1.4,
+      hash: `SHA256:${Date.now().toString(16)}...${Math.floor(Math.random() * 9999).toString(16)}`,
+      timestamp: `اليوم، ${nowStr}`,
+      sensorAudit: {
+        solenoidEngaged: true,
+        reedSwitchClosed: true,
+        weightDeltaKg: 1.4,
+      },
+    };
+    order.proofOfDeliverySentToMerchant = true;
+
+    await auditService.recordEvent({
+      actor: order.driverName || 'المندوب',
+      actorRole: 'DRIVER',
+      orderId: order.id,
+      smartBoxId: order.smartBoxId,
+      compartmentId: order.compartmentId,
+      action: 'DELIVERY_COMPLETED',
+      result: 'SUCCESS',
+      details: `تم التقاط صورة إثبات التسليم POD من المندوب وإرسالها إلى المتجر للمراجعة #${order.id}`,
+    });
+
+    await notificationService.notify(
+      'إثبات تسليم جديد من المندوب',
+      `وصلت لقطة توثيق الإيداع POD للطلب #${order.id} من المندوب ${order.driverName}`,
+      'DELIVERY',
+      { orderId: order.id, smartBoxId: order.smartBoxId }
+    );
+
+    this.notifyListeners();
+    return { success: true, message: 'تم إرفاق صورة إثبات التسليم وإرسالها للمتجر بنجاح.', order };
+  }
+
+  async sendPODToCustomer(
+    orderId: string
+  ): Promise<{ success: boolean; message: string; order?: Order }> {
+    const order = this.orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'الطلب غير موجود.' };
+
+    order.proofOfDeliverySentToCustomer = true;
+
+    await auditService.recordEvent({
+      actor: order.merchantName || 'المتجر',
+      actorRole: 'MERCHANT',
+      orderId: order.id,
+      smartBoxId: order.smartBoxId,
+      compartmentId: order.compartmentId,
+      action: 'DELIVERY_COMPLETED',
+      result: 'SUCCESS',
+      details: `قام المتجر باعتماد وإرسال صورة إثبات التسليم POD إلى العميل #${order.id}`,
+    });
+
+    await notificationService.notify(
+      'صورة إثبات استلام الشحنة بالصندوق',
+      `قام المتجر بإرسال صورة توثيق إيداع شحنتك #${order.id} داخل الصندوق الذكي ${order.smartBoxId}.`,
+      'DELIVERY',
+      { orderId: order.id, smartBoxId: order.smartBoxId }
+    );
+
+    this.notifyListeners();
+    return { success: true, message: 'تم إرسال إثبات التسليم إلى العميل بنجاح.', order };
+  }
+
   async assignDriver(
     orderId: string,
     driverId: string,
@@ -339,14 +545,20 @@ export class MockOrderService implements IOrderService {
     // Role-specific allowed transitions:
     switch (role) {
       case 'CUSTOMER':
+        if (current === 'PENDING' && target === 'CONFIRMED') return { allowed: true };
+        if (current === 'DRIVER_ARRIVED' && target === 'ACCESS_AUTHORIZED') return { allowed: true };
         return {
           allowed: false,
           reason: 'العميل لا يملك صلاحية تغيير مرحلة تشغيل الطلب يدوياً.',
         };
 
       case 'MERCHANT':
+        if (current === target) return { allowed: true };
         if (current === 'PENDING') {
-          if (target === 'ACCEPTED') return { allowed: true };
+          if (target === 'CONFIRMED' || target === 'ACCEPTED' || target === 'PREPARING') return { allowed: true };
+        }
+        if (current === 'CONFIRMED') {
+          if (target === 'ACCEPTED' || target === 'PREPARING') return { allowed: true };
         }
         if (current === 'ACCEPTED') {
           if (target === 'PREPARING') return { allowed: true };

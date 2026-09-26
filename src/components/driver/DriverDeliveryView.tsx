@@ -45,9 +45,10 @@ export const DriverDeliveryView: React.FC = () => {
     driverSecureBox,
     driverCompleteDelivery,
     hardwareSim,
+    authorizations,
   } = useApp();
 
-  const [otpInput, setOtpInput] = useState('129385');
+  const [otpInput, setOtpInput] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -71,66 +72,139 @@ export const DriverDeliveryView: React.FC = () => {
   const currentOrder =
     driverOrders.find((o) => o.id === activeOrder?.id) || driverOrders[0] || activeOrder;
 
+  const activeAuth = authorizations.find(
+    (a) => a.orderId === currentOrder?.id && a.status === 'ACTIVE'
+  );
+
+  // Auto-sync driverStep to match currentOrder.status on load / status change
+  React.useEffect(() => {
+    if (!currentOrder) return;
+    if (currentOrder.status === 'DRIVER_ARRIVED' && driverStep < 2) {
+      setDriverStep(2);
+    } else if (currentOrder.status === 'ACCESS_AUTHORIZED' && driverStep < 3) {
+      setDriverStep(3);
+    } else if (
+      ['OTP_VALIDATED', 'SMART_BOX_OPENED', 'PACKAGE_DEPOSITED', 'SMART_BOX_SECURED'].includes(
+        currentOrder.status
+      ) &&
+      driverStep < 4
+    ) {
+      setDriverStep(4);
+    } else if (currentOrder.status === 'COMPLETED' && driverStep < 5) {
+      setDriverStep(5);
+    }
+  }, [currentOrder?.status]);
+
   // Lifecycle Actions
   const handlePickup = async () => {
     setIsProcessing(true);
-    await driverPickupOrder(currentOrder.id);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      await driverPickupOrder(currentOrder.id);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل استلام الشحنة');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleStartDelivery = async () => {
     setIsProcessing(true);
-    await driverStartDelivery(currentOrder.id);
-    setDriverStep(1);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      await driverStartDelivery(currentOrder.id);
+      setDriverStep(1);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل بدء التوصيل');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleArrival = async () => {
     setIsProcessing(true);
-    await driverArriveAtBox(currentOrder.id);
-    setDriverStep(2);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      await driverArriveAtBox(currentOrder.id);
+      setDriverStep(2);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل تسجيل الوصول');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleRequestAccess = async () => {
     setIsProcessing(true);
-    await driverRequestAccess(currentOrder.id);
-    setDriverStep(3);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      const res = await driverRequestAccess(currentOrder.id);
+      if (res && !res.success) {
+        setErrorMessage(res.message);
+        return;
+      }
+      setDriverStep(3);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل طلب إذن الوصول');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleUnlockSubmit = async () => {
     setIsProcessing(true);
     setErrorMessage('');
-    const res = await driverSubmitOTP(currentOrder.id, otpInput);
-    if (!res.success) {
-      setErrorMessage(res.message);
+    try {
+      const res = await driverSubmitOTP(currentOrder.id, otpInput);
+      if (!res.success) {
+        setErrorMessage(res.message);
+        return;
+      }
+      // Once OTP is validated, automatically trigger open box
+      await driverOpenBox(currentOrder.id);
+      setDriverStep(4);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل فتح الصندوق الذكي');
+    } finally {
       setIsProcessing(false);
-      return;
     }
-    // Once OTP is validated, automatically trigger open box
-    await driverOpenBox(currentOrder.id);
-    setDriverStep(4);
-    setIsProcessing(false);
   };
 
   const handleDepositPackage = async () => {
     setIsProcessing(true);
-    await driverDepositPackage(currentOrder.id, 1.4);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      await driverDepositPackage(currentOrder.id, 1.4);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل إيداع الشحنة في الحجيرة');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleSecureBox = async () => {
     setIsProcessing(true);
-    await driverSecureBox(currentOrder.id);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      await driverSecureBox(currentOrder.id);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل تأمين وقفل الصندوق الذكي');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleCompleteDelivery = async () => {
     setIsProcessing(true);
-    await driverCompleteDelivery(currentOrder.id);
-    setDriverStep(5);
-    setIsProcessing(false);
+    setErrorMessage('');
+    try {
+      await driverCompleteDelivery(currentOrder.id);
+      setDriverStep(5);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل توثيق وإتمام عملية التسليم');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -350,7 +424,7 @@ export const DriverDeliveryView: React.FC = () => {
           <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 max-w-sm mx-auto flex items-center justify-between text-xs">
             <span className="text-slate-400">الحجيرة المخصصة لطردك:</span>
             <span className="font-bold text-cyan-400 font-mono">
-              حجيرة {currentOrder.compartmentId || '02'} (حجم {currentOrder.compartmentSize || 'M'})
+              حجيرة {currentOrder.compartmentId || '01'} (حجم {currentOrder.compartmentSize || 'S'})
             </span>
           </div>
 
@@ -386,13 +460,16 @@ export const DriverDeliveryView: React.FC = () => {
                 maxLength={6}
                 value={otpInput}
                 onChange={(e) => setOtpInput(e.target.value)}
+                placeholder="6 أرقام"
                 className="w-56 p-3 rounded-2xl bg-slate-950 border-2 border-cyan-400 text-center font-mono text-2xl font-bold tracking-widest text-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/20"
               />
             </div>
 
-            <p className="text-[11px] text-slate-500">
-              الرمز الافتراضي المعتمد للطلب الحالي: <code className="text-cyan-400 font-bold">129385</code>
-            </p>
+            {activeAuth?.otp && (
+              <p className="text-[11px] text-slate-400 font-mono">
+                SIMULATED DEMO OTP: <code className="text-cyan-400 font-bold">{activeAuth.otp}</code>
+              </p>
+            )}
           </div>
 
           {errorMessage && (
@@ -409,7 +486,11 @@ export const DriverDeliveryView: React.FC = () => {
               مزامنة بلوتوث / NFC مشفرة:
             </span>
             <button
-              onClick={() => setOtpInput('129385')}
+              onClick={() => {
+                if (activeAuth?.otp) {
+                  setOtpInput(activeAuth.otp);
+                }
+              }}
               className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold"
             >
               استرداد الكود تلقائياً
@@ -444,7 +525,7 @@ export const DriverDeliveryView: React.FC = () => {
               </h3>
             </div>
             <span className="text-xs text-cyan-400 font-mono">
-              حجيرة {currentOrder.compartmentId || '02'} • {currentOrder.smartBoxId}
+              حجيرة {currentOrder.compartmentId || '01'} • {currentOrder.smartBoxId}
             </span>
           </div>
 
@@ -486,6 +567,13 @@ export const DriverDeliveryView: React.FC = () => {
               <p className="text-[10px] text-slate-400">مستشعر إغلاق الباب الميكانيكي</p>
             </div>
           </div>
+
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
 
           {/* Step Controls: Deposit Package & Secure Box */}
           <div className="space-y-2">

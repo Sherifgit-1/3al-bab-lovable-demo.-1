@@ -214,7 +214,7 @@ export const AdminDirectory: React.FC = () => {
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
                   <span className="text-[10px] text-slate-400 block">مبيعات اليوم</span>
-                  <span className="font-mono text-emerald-400 font-bold">{m.todaySales.toLocaleString()} ج.م</span>
+                  <span className="font-mono text-emerald-400 font-bold">{(m.todaySales || 0).toLocaleString()} ج.م</span>
                 </div>
                 <div className="p-2 rounded-xl bg-slate-950 border border-slate-800">
                   <span className="text-[10px] text-slate-400 block">طلبات اليوم</span>

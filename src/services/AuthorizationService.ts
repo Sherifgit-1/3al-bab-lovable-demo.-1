@@ -11,11 +11,46 @@ import {
 import { TemporaryAccessAuthorization } from '../types';
 import { INITIAL_AUTHORIZATIONS } from '../data/mockData';
 import { auditService } from './AuditService';
+import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage';
 
 export const DELIVERY_AUTHORIZATION_DURATION_MINUTES = 5;
 
 export class MockAuthorizationService implements IAuthorizationService {
-  private authorizations: TemporaryAccessAuthorization[] = [...INITIAL_AUTHORIZATIONS];
+  private authorizations: TemporaryAccessAuthorization[] = [];
+  private listeners: ((auths: TemporaryAccessAuthorization[]) => void)[] = [];
+
+  constructor() {
+    const stored = loadFromStorage<TemporaryAccessAuthorization[] | null>(DEMO_STORAGE_KEYS.AUTHORIZATIONS, null);
+    if (stored && Array.isArray(stored) && stored.length > 0) {
+      this.authorizations = stored;
+    } else {
+      this.authorizations = [...INITIAL_AUTHORIZATIONS];
+      saveToStorage(DEMO_STORAGE_KEYS.AUTHORIZATIONS, this.authorizations);
+    }
+  }
+
+  subscribe(listener: (auths: TemporaryAccessAuthorization[]) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notify() {
+    saveToStorage(DEMO_STORAGE_KEYS.AUTHORIZATIONS, this.authorizations);
+    const cloned = [...this.authorizations];
+    this.listeners.forEach((l) => l(cloned));
+  }
+
+  getAllAuthorizationsSync(): TemporaryAccessAuthorization[] {
+    return [...this.authorizations];
+  }
+
+  resetToSeedData(): TemporaryAccessAuthorization[] {
+    this.authorizations = [...INITIAL_AUTHORIZATIONS];
+    this.notify();
+    return [...this.authorizations];
+  }
 
   async createAuthorization(params: {
     customerId: string;
@@ -64,6 +99,7 @@ export class MockAuthorizationService implements IAuthorizationService {
     };
 
     this.authorizations.unshift(newAuth);
+    this.notify();
 
     // Audit log - NEVER log the raw OTP value
     await auditService.recordEvent({
@@ -89,6 +125,7 @@ export class MockAuthorizationService implements IAuthorizationService {
     // Check expiration timestamp
     if (auth.expiresAtTimestamp && Date.now() > auth.expiresAtTimestamp) {
       auth.status = 'EXPIRED';
+      this.notify();
       await auditService.recordEvent({
         actor: auth.driverName || driverId,
         actorRole: 'DRIVER',
@@ -386,10 +423,13 @@ export class MockAuthorizationService implements IAuthorizationService {
       };
     }
 
-    // All 10 checks passed! Mark OTP consumed and validated, but KEEP status ACTIVE for physical operations
+    // All 10 checks passed! Mark OTP consumed and validated; update status to USED as required
     auth.isOtpConsumed = true;
     auth.otpValidated = true;
-    auth.otpValidatedAt = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    auth.status = 'USED';
+    auth.usedAt = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    auth.otpValidatedAt = auth.usedAt;
+    this.notify();
 
     // NEVER log raw OTP in audit log
     await auditService.recordEvent({
@@ -417,6 +457,7 @@ export class MockAuthorizationService implements IAuthorizationService {
     if (!auth) return false;
     auth.status = 'USED';
     auth.usedAt = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    this.notify();
 
     await auditService.recordEvent({
       actor: auth.driverName || 'المندوب',
@@ -440,9 +481,10 @@ export class MockAuthorizationService implements IAuthorizationService {
       (a) => a.orderId === orderId && a.smartBoxId === boxId && a.compartmentId === compartmentId
     );
     if (!auth) return false;
-    if (auth.status !== 'ACTIVE') return false;
+    if (auth.status === 'REVOKED' || auth.status === 'EXPIRED') return false;
     if (auth.expiresAtTimestamp && Date.now() > auth.expiresAtTimestamp) {
       auth.status = 'EXPIRED';
+      this.notify();
       return false;
     }
     return auth.otpValidated === true;
@@ -452,6 +494,7 @@ export class MockAuthorizationService implements IAuthorizationService {
     const auth = this.authorizations.find((a) => a.id === authId);
     if (!auth) return false;
     auth.status = 'REVOKED';
+    this.notify();
 
     await auditService.recordEvent({
       actor: auth.customerName,

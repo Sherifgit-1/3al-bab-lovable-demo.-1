@@ -22,6 +22,7 @@ import {
   Store,
   MapPin,
   Lock,
+  Box,
 } from 'lucide-react';
 
 export const CustomerTracking: React.FC = () => {
@@ -32,13 +33,14 @@ export const CustomerTracking: React.FC = () => {
     setCustomerView,
     authorizations,
     cancelOrder,
+    customerAuthorizeAccess,
   } = useApp();
 
   const [copiedOtp, setCopiedOtp] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelMessage, setCancelMessage] = useState<string | null>(null);
 
-  const auth = authorizations.find((a) => a.orderId === activeOrder?.id) || authorizations[0];
+  const auth = authorizations.find((a) => a.orderId === activeOrder?.id && a.status === 'ACTIVE') || authorizations.find((a) => a.orderId === activeOrder?.id);
 
   const handleCopyOtp = () => {
     if (auth?.otp) {
@@ -58,76 +60,47 @@ export const CustomerTracking: React.FC = () => {
     }
   };
 
-  // The 10 user-facing lifecycle milestones requested
-  const milestones = [
-    {
-      id: 'PENDING_ACCEPTED',
-      label: 'طلبك تم استلامه',
-      statuses: ['PENDING', 'ACCEPTED'],
-    },
-    {
-      id: 'PREPARING',
-      label: 'جاري تجهيز الطلب',
-      statuses: ['PREPARING'],
-    },
-    {
-      id: 'READY',
-      label: 'الطلب جاهز',
-      statuses: ['READY', 'ASSIGNED_TO_DRIVER'],
-    },
-    {
-      id: 'PICKED_UP',
-      label: 'المندوب استلم الطلب',
-      statuses: ['PICKED_UP'],
-    },
-    {
-      id: 'OUT_FOR_DELIVERY',
-      label: 'المندوب في الطريق',
-      statuses: ['OUT_FOR_DELIVERY'],
-    },
-    {
-      id: 'DRIVER_ARRIVED',
-      label: 'المندوب وصل',
-      statuses: ['DRIVER_ARRIVED'],
-    },
-    {
-      id: 'DEPOSITING',
-      label: 'جاري تسليم الطلب للصندوق',
-      statuses: ['ACCESS_AUTHORIZED', 'OTP_VALIDATED', 'SMART_BOX_OPENED'],
-    },
-    {
-      id: 'PACKAGE_DEPOSITED',
-      label: 'تم إيداع الطلب',
-      statuses: ['PACKAGE_DEPOSITED'],
-    },
-    {
-      id: 'SMART_BOX_SECURED',
-      label: 'تم تأمين الصندوق',
-      statuses: ['SMART_BOX_SECURED'],
-    },
-    {
-      id: 'COMPLETED',
-      label: 'تم التسليم',
-      statuses: ['COMPLETED'],
-    },
+  const ALL_TRACKING_STEPS = [
+    { status: 'PENDING', label: 'تم إنشاء الطلب', desc: 'تم استلام طلبك من المنصة', icon: Clock },
+    { status: 'ACCEPTED', label: 'تم قبول الطلب', desc: 'وافق المتجر على الطلب وجاري التحضير', icon: CheckCircle2 },
+    { status: 'PREPARING', label: 'جاري التجهيز', desc: 'المتجر يجهز الأصناف ويقوم بتغليفها', icon: Package },
+    { status: 'READY', label: 'الطلب جاهز', desc: 'جاهز للاستلام والتسليم للمندوب', icon: CheckCircle2 },
+    { status: 'ASSIGNED_TO_DRIVER', label: 'تم إسناد الطلب للمندوب', desc: 'تم تعيين المندوب الميداني للشحنة', icon: Truck },
+    { status: 'PICKED_UP', label: 'تم استلام الشحنة', desc: 'استلم المندوب الطرد وبدأ التحرك', icon: Package },
+    { status: 'OUT_FOR_DELIVERY', label: 'جاري التوصيل الميداني', desc: 'المندوب في طريقه نحو موقع الصندوق الذكي', icon: Truck },
+    { status: 'DRIVER_ARRIVED', label: 'المندوب وصل أمام الصندوق', desc: 'وصل المندوب للموقع الجغرافي المحدد', icon: MapPin },
+    { status: 'ACCESS_AUTHORIZED', label: 'تم إصدار تصريح الوصول', desc: 'تم إنشاء تصريح وتفويض فتح الحجيرة الذكية', icon: KeyRound },
+    { status: 'OTP_VALIDATED', label: 'تم التحقق من الرمز (OTP)', desc: 'اجتاز الرمز الفحص المشفر لمرة واحدة', icon: ShieldCheck },
+    { status: 'SMART_BOX_OPENED', label: 'تم فتح الحجيرة الذكية', desc: 'تم تحرير القفل المغناطيسي والمزلاج', icon: Box },
+    { status: 'PACKAGE_DEPOSITED', label: 'تم إيداع الطرد بالحجيرة', desc: 'تم رصد الوزن وتأكيد استقرار الشحنة', icon: Package },
+    { status: 'SMART_BOX_SECURED', label: 'تم تأمين وقفل الصندوق', desc: 'أُغلق الباب وأُحكم القفل الكهرومغناطيسي', icon: Lock },
+    { status: 'COMPLETED', label: 'تم التسليم بنجاح', desc: 'اكتملت دورة التوصيل وتوثيق الإثبات POD', icon: CheckCircle2 },
   ];
 
-  const getMilestoneIndex = (status: string) => {
-    return milestones.findIndex((m) => m.statuses.includes(status));
-  };
-
   const currentStatus = activeOrder?.status || 'PENDING';
-  const currentMilestoneIndex = getMilestoneIndex(currentStatus);
 
-  const getMilestoneState = (index: number) => {
-    if (currentStatus === 'COMPLETED') return 'DONE';
-    if (currentStatus === 'CANCELLED' || currentStatus === 'REJECTED' || currentStatus === 'DELIVERY_FAILED') {
-      return 'FAILED';
-    }
-    if (index < currentMilestoneIndex) return 'DONE';
-    if (index === currentMilestoneIndex) return 'CURRENT';
-    return 'UPCOMING';
-  };
+  const stateOrder = [
+    'PENDING',
+    'ACCEPTED',
+    'PREPARING',
+    'READY',
+    'ASSIGNED_TO_DRIVER',
+    'PICKED_UP',
+    'OUT_FOR_DELIVERY',
+    'DRIVER_ARRIVED',
+    'ACCESS_AUTHORIZED',
+    'OTP_VALIDATED',
+    'SMART_BOX_OPENED',
+    'PACKAGE_DEPOSITED',
+    'SMART_BOX_SECURED',
+    'COMPLETED',
+  ];
+
+  const currentIndex = stateOrder.indexOf(currentStatus);
+  const reachedSteps =
+    currentIndex >= 0
+      ? ALL_TRACKING_STEPS.slice(0, currentIndex + 1)
+      : ALL_TRACKING_STEPS.slice(0, 1);
 
   const getFriendlyStatusHeader = () => {
     switch (currentStatus) {
@@ -174,19 +147,28 @@ export const CustomerTracking: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-150">
       {/* Top Breadcrumb & Switcher between customer orders */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <button
-          onClick={() => setCustomerView('HOME')}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
-        >
-          <ArrowRight className="w-4 h-4" />
-          <span>العودة للرئيسية</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCustomerView('ORDERS')}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+          >
+            <ArrowRight className="w-4 h-4" />
+            <span>العودة لطلباتي</span>
+          </button>
+          <span className="text-slate-600">•</span>
+          <button
+            onClick={() => setCustomerView('HOME')}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            الرئيسية
+          </button>
+        </div>
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
           <span className="text-xs text-slate-400 whitespace-nowrap">اختر الطلب:</span>
           {orders
             .filter((o) => o.customerId === 'cust-1' || !o.customerId)
-            .slice(0, 4)
+            .slice(0, 5)
             .map((ord) => (
               <button
                 key={ord.id}
@@ -251,46 +233,72 @@ export const CustomerTracking: React.FC = () => {
           </div>
         )}
 
-        {/* 10-Milestone Customer Status Stepper */}
-        <div>
-          <div className="flex items-center justify-between pb-2">
-            <span className="text-xs font-bold text-slate-300">مراحل التوصيل:</span>
+        {/* Timeline of Reached Lifecycle States Only (Section 4) */}
+        <div className="space-y-3 pt-1">
+          <div className="flex items-center justify-between pb-1 border-b border-slate-800">
+            <span className="text-xs font-bold text-slate-300">مراحل التوصيل المنجزة:</span>
             <span className="text-xs text-cyan-400 font-mono">
-              المرحلة {Math.min(currentMilestoneIndex + 1, 10)} من 10
+              المرحلة {reachedSteps.length} من {ALL_TRACKING_STEPS.length}
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
-            {milestones.map((m, idx) => {
-              const state = getMilestoneState(idx);
+          <div className="space-y-2">
+            {reachedSteps.map((step, idx) => {
+              const isLatest = idx === reachedSteps.length - 1;
+              const isCompleted = activeOrder?.status === 'COMPLETED';
+              const StepIcon = step.icon;
 
               return (
                 <div
-                  key={m.id}
-                  className={`p-2.5 rounded-xl border text-center transition-all ${
-                    state === 'CURRENT'
+                  key={step.status}
+                  className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                    isLatest && !isCompleted
                       ? 'bg-cyan-950/70 border-cyan-400 shadow-md shadow-cyan-900/40 ring-1 ring-cyan-400'
-                      : state === 'DONE'
-                      ? 'bg-slate-950/80 border-emerald-700/60 text-slate-300'
-                      : 'bg-slate-950/40 border-slate-800/80 text-slate-500 opacity-60'
+                      : 'bg-slate-950/80 border-emerald-800/60 text-slate-300'
                   }`}
                 >
-                  <div className="flex justify-center mb-1.5">
-                    {state === 'DONE' ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    ) : state === 'CURRENT' ? (
-                      <span className="flex h-3 w-3 relative my-0.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
-                      </span>
-                    ) : (
-                      <div className="w-3 h-3 rounded-full border border-slate-700" />
-                    )}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        isLatest && !isCompleted
+                          ? 'bg-cyan-500 text-slate-950 font-bold'
+                          : 'bg-emerald-950 text-emerald-400 border border-emerald-700/60'
+                      }`}
+                    >
+                      {isLatest && !isCompleted ? (
+                        <span className="flex h-3 w-3 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-950 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-slate-950"></span>
+                        </span>
+                      ) : (
+                        <Check className="w-4 h-4" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-white truncate font-['Cairo']">
+                          {step.label}
+                        </h4>
+                        <span className="font-mono text-[10px] text-slate-500">
+                          ({step.status})
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                        {step.desc}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-[11px] font-bold text-white leading-tight">{m.label}</div>
-                  <div className="text-[9px] font-mono text-slate-400 mt-1">
-                    {idx + 1}
-                  </div>
+
+                  <span
+                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 font-mono ${
+                      isLatest && !isCompleted
+                        ? 'bg-cyan-500 text-slate-950'
+                        : 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                    }`}
+                  >
+                    {isLatest && !isCompleted ? 'الوضع الحالي' : 'مكتمل ✓'}
+                  </span>
                 </div>
               );
             })}
@@ -317,33 +325,53 @@ export const CustomerTracking: React.FC = () => {
             <span className="text-xs text-slate-400">رمز فتح الحجيرة للمندوب (OTP):</span>
             <div className="flex items-center gap-3">
               <span className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-cyan-400">
-                {auth?.otp || '129385'}
+                {auth?.otp || '------'}
               </span>
-              <button
-                onClick={handleCopyOtp}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                title="نسخ الرمز"
-              >
-                {copiedOtp ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              </button>
+              {auth?.otp && (
+                <button
+                  onClick={handleCopyOtp}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                  title="نسخ الرمز"
+                >
+                  {copiedOtp ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                </button>
+              )}
             </div>
             <p className="text-[10px] text-slate-400">
-              يُستخدم لمرة واحدة فقط لفتح الحجيرة وتأمين الطرد
+              {auth?.otp
+                ? 'رمز صالح لمرة واحدة لمدة 5 دقائق لفتح الحجيرة وتأمين الشحنة'
+                : 'يتم توليد الرمز تلقائياً فور وصول المندوب والموافقة على إذن الوصول'}
             </p>
           </div>
+
+          {/* Customer Action at Driver Arrival */}
+          {activeOrder?.status === 'DRIVER_ARRIVED' && (!auth || auth.status !== 'ACTIVE') && (
+            <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-800 text-center space-y-2">
+              <p className="text-xs text-amber-200 font-semibold">
+                المندوب وصل أمام الصندوق الذكي BOX-102. اضغط للموافقة وبدء مهلة الـ 5 دقائق.
+              </p>
+              <button
+                onClick={() => customerAuthorizeAccess(activeOrder.id)}
+                className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
+              >
+                <KeyRound className="w-4 h-4" />
+                <span>إصدار تصريح دخول مؤقت للمندوب (5 دقائق)</span>
+              </button>
+            </div>
+          )}
 
           {/* Delivery Destination and Smart Box Info */}
           <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-slate-400">الصندوق المخصص:</span>
               <span className="font-mono text-cyan-300 font-bold">
-                {activeOrder?.smartBoxId || 'BOX-102'} • الحجيرة {activeOrder?.compartmentId || '02'}
+                {activeOrder?.smartBoxId || 'BOX-102'} • الحجيرة {activeOrder?.compartmentId || '01'}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">عنوان الصندوق:</span>
               <span className="text-slate-200 text-right">
-                {activeOrder?.deliveryAddress || 'الفيلا 14 - التجمع الخامس'}
+                {activeOrder?.deliveryAddress || 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس'}
               </span>
             </div>
             <div className="flex items-center justify-between">

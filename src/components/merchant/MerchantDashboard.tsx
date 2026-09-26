@@ -26,6 +26,10 @@ import {
   Play,
   Check,
   UserCheck,
+  MessageSquare,
+  Send,
+  FileText,
+  Camera,
 } from 'lucide-react';
 
 export const MerchantDashboard: React.FC = () => {
@@ -40,9 +44,17 @@ export const MerchantDashboard: React.FC = () => {
     merchants,
     boxes,
     drivers,
+    conversations,
+    chatMessages,
+    activeConversation,
+    setActiveConversation,
+    sendMerchantReply,
+    confirmOrderByMerchant,
   } = useApp();
 
   const currentMerchant = merchants[0]; // Middle East Tech
+  const [dashboardTab, setDashboardTab] = useState<'PIPELINE' | 'CHATS'>('PIPELINE');
+  const [merchantReplyText, setMerchantReplyText] = useState('');
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('عدم توفر الصنف في المخزون حالياً');
 
@@ -129,7 +141,245 @@ export const MerchantDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Navigation Tabs: Operations Pipeline vs Customer Chats */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+        <button
+          onClick={() => setDashboardTab('PIPELINE')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            dashboardTab === 'PIPELINE'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+              : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>طابور عمليات التجهيز والتسليم الميداني</span>
+          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-black/20">
+            {pendingOrders.length + acceptedOrders.length + prepOrders.length + readyOrders.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setDashboardTab('CHATS')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            dashboardTab === 'CHATS'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+              : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span>محادثات العملاء والطلبات المباشرة</span>
+          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-emerald-500/20 text-emerald-300">
+            {conversations.length} نشطة
+          </span>
+        </button>
+      </div>
+
+      {/* Customer Chats Panel */}
+      {dashboardTab === 'CHATS' && (
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+          <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <h3 className="font-bold text-white text-sm">
+                محادثات العملاء وتأكيد الطلبات وبوالص التسليم
+              </h3>
+            </div>
+            <span className="text-xs text-slate-400 font-mono">
+              بوابة التاجر • ربط مباشر بالصندوق الذكي
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 min-h-[500px]">
+            {/* Conversations List */}
+            <div className="border-b md:border-b-0 md:border-l border-slate-800 p-3 space-y-2 bg-slate-950/40">
+              <span className="text-[11px] font-bold text-slate-400 block px-1">
+                المحادثات النشطة:
+              </span>
+              {conversations.map((c) => {
+                const isSelected = activeConversation?.id === c.id;
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setActiveConversation(c)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-emerald-950/60 border-emerald-500 text-white'
+                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs">{c.customerName || 'عميل'}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{c.lastMessageAt}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate mt-1">{c.lastMessage}</p>
+                    {c.orderId && (
+                      <span className="inline-block mt-1 text-[10px] font-mono text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800/60">
+                        طلب #{c.orderId}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Chat Body & Actions */}
+            <div className="md:col-span-2 flex flex-col justify-between bg-slate-900/90">
+              {/* Header Info */}
+              {activeConversation && (
+                <div className="p-3 bg-slate-950/80 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div>
+                    <span className="font-bold text-white block">
+                      {activeConversation.customerName || 'أحمد مصطفى'}
+                    </span>
+                    <span className="text-slate-400 text-[11px]">
+                      معرّف المحادثة: {activeConversation.id} • الطلب المرتبط: {activeConversation.orderId || 'TW-1001'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Merchant Confirm Button */}
+                    <button
+                      onClick={() => confirmOrderByMerchant(activeConversation.orderId)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>تأكيد وقبول الطلب من المتجر</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Messages Container */}
+              <div className="p-4 space-y-3 overflow-y-auto max-h-[380px]">
+                {chatMessages.map((m) => {
+                  const isMerchant = m.senderRole === 'MERCHANT';
+                  const isDriver = m.senderRole === 'DRIVER';
+                  const isSystem = m.senderRole === 'ADMIN' || m.messageType === 'SYSTEM';
+
+                  if (isSystem) {
+                    return (
+                      <div key={m.id} className="text-center my-2">
+                        <span className="px-3 py-1 rounded-full bg-slate-800 text-slate-300 text-[10px] font-medium">
+                          {m.text}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  if (m.messageType === 'PROOF_OF_DELIVERY') {
+                    return (
+                      <div key={m.id} className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-700 text-emerald-200 text-xs space-y-2">
+                        <div className="flex items-center justify-between font-bold">
+                          <span className="flex items-center gap-1.5">
+                            <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                            توثيق التسليم الميداني (POD) من المندوب
+                          </span>
+                          <span className="font-mono text-[10px]">{m.timestamp}</span>
+                        </div>
+                        {m.imageUrl && (
+                          <div className="relative h-36 rounded-lg overflow-hidden bg-slate-950 border border-emerald-800">
+                            <img src={m.imageUrl} alt="POD" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-1 right-1 bg-black/80 px-2 py-0.5 rounded text-[10px] font-mono text-white">
+                              الوزن: 1.4 كجم • الحجيرة: 01
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-[11px] leading-relaxed">{m.text}</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex flex-col ${isMerchant ? 'items-end' : 'items-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] p-3 rounded-2xl text-xs space-y-1.5 ${
+                          isMerchant
+                            ? 'bg-emerald-600 text-white rounded-br-xs'
+                            : isDriver
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-slate-800 text-slate-200 rounded-bl-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3 text-[10px] opacity-75">
+                          <span>{isMerchant ? 'أنت (التاجر)' : isDriver ? 'المندوب' : 'العميل'}</span>
+                          <span className="font-mono">{m.timestamp}</span>
+                        </div>
+
+                        {m.messageType === 'HANDWRITTEN_ORDER' && (
+                          <div className="p-2 rounded-lg bg-black/20 space-y-1">
+                            <span className="font-bold text-[10px] flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              طلب مكتوب بخط اليد:
+                            </span>
+                            {m.imageUrl && (
+                              <img src={m.imageUrl} alt="Handwritten order" className="rounded max-h-28 object-cover" />
+                            )}
+                          </div>
+                        )}
+
+                        <p className="whitespace-pre-line leading-relaxed">{m.text}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Reply Box */}
+              <div className="p-3 bg-slate-950 border-t border-slate-800 space-y-2">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 text-[11px]">
+                  <span className="text-slate-400 shrink-0">ردود سريعة:</span>
+                  <button
+                    onClick={() => sendMerchantReply('البطاطس خلصت، ممكن نستبدلها بكول سلو؟')}
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 transition-colors"
+                  >
+                    استبدال البطاطس بالكول سلو
+                  </button>
+                  <button
+                    onClick={() => sendMerchantReply('تم تحضير وتغليف الطلب وجاري تسليمه للمندوب.')}
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 transition-colors"
+                  >
+                    تم تحضير الطلب وتسليمه
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={merchantReplyText}
+                    onChange={(e) => setMerchantReplyText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && merchantReplyText.trim()) {
+                        sendMerchantReply(merchantReplyText.trim());
+                        setMerchantReplyText('');
+                      }
+                    }}
+                    placeholder="اكتب رد المتجر على العميل..."
+                    className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-['Cairo']"
+                  />
+                  <button
+                    onClick={() => {
+                      if (merchantReplyText.trim()) {
+                        sendMerchantReply(merchantReplyText.trim());
+                        setMerchantReplyText('');
+                      }
+                    }}
+                    disabled={!merchantReplyText.trim()}
+                    className="p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white transition-colors"
+                  >
+                    <Send className="w-4 h-4 rotate-180" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 4-Column Interactive Operations Pipeline */}
+      {dashboardTab === 'PIPELINE' && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -220,6 +470,14 @@ export const MerchantDashboard: React.FC = () => {
                           <span>قبول الطلب</span>
                         </button>
                         <button
+                          onClick={() => markOrderPreparing(ord.id)}
+                          className="py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1"
+                          title="استلمت الطلب وبدء التجهيز فوراً"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>استلمت الطلب</span>
+                        </button>
+                        <button
                           onClick={() => setRejectingOrderId(ord.id)}
                           className="p-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 transition-colors"
                           title="رفض الطلب"
@@ -277,7 +535,7 @@ export const MerchantDashboard: React.FC = () => {
                           className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1"
                         >
                           <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>بدء التجهيز والتغليف</span>
+                          <span>استلمت الطلب • بدء التجهيز والتغليف</span>
                         </button>
                       </div>
                     </div>
@@ -424,6 +682,7 @@ export const MerchantDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Target Smart Box Compartment Monitor */}
       <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 shadow-xl">

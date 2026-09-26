@@ -6,10 +6,21 @@
 import { INotificationService } from './interfaces';
 import { NotificationItem } from '../types';
 import { INITIAL_NOTIFICATIONS } from '../data/mockData';
+import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage';
 
 export class MockNotificationService implements INotificationService {
-  private notifications: NotificationItem[] = [...INITIAL_NOTIFICATIONS];
+  private notifications: NotificationItem[] = [];
   private listeners: ((notifications: NotificationItem[]) => void)[] = [];
+
+  constructor() {
+    const stored = loadFromStorage<NotificationItem[] | null>(DEMO_STORAGE_KEYS.NOTIFICATIONS, null);
+    if (stored && Array.isArray(stored) && stored.length > 0) {
+      this.notifications = stored;
+    } else {
+      this.notifications = [...INITIAL_NOTIFICATIONS];
+      saveToStorage(DEMO_STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+    }
+  }
 
   subscribe(listener: (notifications: NotificationItem[]) => void) {
     this.listeners.push(listener);
@@ -19,7 +30,18 @@ export class MockNotificationService implements INotificationService {
   }
 
   private notifyListeners() {
+    saveToStorage(DEMO_STORAGE_KEYS.NOTIFICATIONS, this.notifications);
     this.listeners.forEach((l) => l([...this.notifications]));
+  }
+
+  getNotificationsSync(): NotificationItem[] {
+    return [...this.notifications];
+  }
+
+  resetToSeedData(): NotificationItem[] {
+    this.notifications = [...INITIAL_NOTIFICATIONS];
+    this.notifyListeners();
+    return [...this.notifications];
   }
 
   async notify(
@@ -43,7 +65,7 @@ export class MockNotificationService implements INotificationService {
   }
 
   async getNotifications(): Promise<NotificationItem[]> {
-    return this.notifications;
+    return [...this.notifications];
   }
 
   async markAsRead(id: string): Promise<void> {

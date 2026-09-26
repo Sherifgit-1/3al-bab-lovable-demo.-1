@@ -9,6 +9,7 @@ export type OrderType = 'INTERNAL_ORDER' | 'EXTERNAL_ORDER';
 
 export type OrderStatus =
   | 'PENDING'
+  | 'CONFIRMED'
   | 'ACCEPTED'
   | 'PREPARING'
   | 'READY'
@@ -233,21 +234,70 @@ export interface Order {
   authorizationId?: string;
   accessAuthorizationId?: string;
   externalDetails?: ExternalOrderDetails;
+  customerConfirmed?: boolean;
+  merchantConfirmed?: boolean;
+  customerConfirmedAt?: string;
+  merchantConfirmedAt?: string;
+  confirmedAt?: string;
+  proofOfDeliverySentToMerchant?: boolean;
+  proofOfDeliverySentToCustomer?: boolean;
 }
 
 export interface Merchant {
   id: string;
   name: string;
+  businessName: string;
+  ownerName: string;
   category: string;
   rating: number;
   address: string;
   phone: string;
-  todaySales: number;
-  todayCompletedOrders: number;
-  avgPrepTimeMinutes: number;
+  phoneNumbers: string[];
+  deliveryAvailable: boolean;
+  workingHours: string;
   isOpen: boolean;
-  webhookStatus: string;
-  webhookLatencyMs: number;
+  storePhotos: string[];
+  shelfPhotos: string[];
+  featurePhotos: string[];
+  ownerPhoto: string;
+  menuPhotos: string[];
+  todaySales?: number;
+  todayCompletedOrders?: number;
+  avgPrepTimeMinutes?: number;
+  webhookStatus?: string;
+  webhookLatencyMs?: number;
+}
+
+export type MessageType =
+  | 'TEXT'
+  | 'IMAGE'
+  | 'HANDWRITTEN_ORDER'
+  | 'SYSTEM'
+  | 'PROOF_OF_DELIVERY';
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderRole: ActorRole;
+  messageType: MessageType;
+  text?: string;
+  imageUrl?: string;
+  timestamp: string;
+  read: boolean;
+  orderId?: string;
+}
+
+export interface Conversation {
+  id: string;
+  customerId: string;
+  customerName?: string;
+  merchantId: string;
+  merchantName?: string;
+  orderId?: string;
+  createdAt: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
 }
 
 export interface Driver {
@@ -304,3 +354,17 @@ export interface AuthUser {
   details?: string;
   avatarUrl?: string;
 }
+
+export type CustomerView =
+  | 'HOME'
+  | 'STORE'
+  | 'CHECKOUT'
+  | 'TRACKING'
+  | 'BOXES'
+  | 'EXTERNAL_ORDER'
+  | 'MERCHANT_LIST'
+  | 'MERCHANT_PROFILE'
+  | 'CHAT'
+  | 'ORDERS'
+  | 'ORDER_DETAILS'
+  | 'ACCOUNT';

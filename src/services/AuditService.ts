@@ -6,10 +6,29 @@
 import { IAuditService } from './interfaces';
 import { AuditLog, SecurityEvent, ActorRole, AuditAction } from '../types';
 import { INITIAL_AUDIT_LOGS, INITIAL_SECURITY_EVENTS } from '../data/mockData';
+import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage';
 
 export class MockAuditService implements IAuditService {
-  private auditLogs: AuditLog[] = [...INITIAL_AUDIT_LOGS];
-  private securityEvents: SecurityEvent[] = [...INITIAL_SECURITY_EVENTS];
+  private auditLogs: AuditLog[] = [];
+  private securityEvents: SecurityEvent[] = [];
+
+  constructor() {
+    const storedLogs = loadFromStorage<AuditLog[] | null>(DEMO_STORAGE_KEYS.AUDIT_LOGS, null);
+    if (storedLogs && Array.isArray(storedLogs) && storedLogs.length > 0) {
+      this.auditLogs = storedLogs;
+    } else {
+      this.auditLogs = [...INITIAL_AUDIT_LOGS];
+      saveToStorage(DEMO_STORAGE_KEYS.AUDIT_LOGS, this.auditLogs);
+    }
+
+    const storedSec = loadFromStorage<SecurityEvent[] | null>(DEMO_STORAGE_KEYS.SECURITY_EVENTS, null);
+    if (storedSec && Array.isArray(storedSec) && storedSec.length > 0) {
+      this.securityEvents = storedSec;
+    } else {
+      this.securityEvents = [...INITIAL_SECURITY_EVENTS];
+      saveToStorage(DEMO_STORAGE_KEYS.SECURITY_EVENTS, this.securityEvents);
+    }
+  }
 
   private generateDigitalHash(): string {
     const chars = '0123456789abcdef';
@@ -18,6 +37,25 @@ export class MockAuditService implements IAuditService {
     for (let i = 0; i < 4; i++) h1 += chars[Math.floor(Math.random() * chars.length)];
     for (let i = 0; i < 4; i++) h2 += chars[Math.floor(Math.random() * chars.length)];
     return `SHA256: ${h1}...${h2}`;
+  }
+
+  getAuditLogsSync(limit: number = 50): AuditLog[] {
+    return this.auditLogs.slice(0, limit);
+  }
+
+  getSecurityEventsSync(): SecurityEvent[] {
+    return [...this.securityEvents];
+  }
+
+  resetToSeedData(): { auditLogs: AuditLog[]; securityEvents: SecurityEvent[] } {
+    this.auditLogs = [...INITIAL_AUDIT_LOGS];
+    this.securityEvents = [...INITIAL_SECURITY_EVENTS];
+    saveToStorage(DEMO_STORAGE_KEYS.AUDIT_LOGS, this.auditLogs);
+    saveToStorage(DEMO_STORAGE_KEYS.SECURITY_EVENTS, this.securityEvents);
+    return {
+      auditLogs: [...this.auditLogs],
+      securityEvents: [...this.securityEvents],
+    };
   }
 
   async recordEvent(params: {
@@ -45,6 +83,7 @@ export class MockAuditService implements IAuditService {
     };
 
     this.auditLogs.unshift(newLog);
+    saveToStorage(DEMO_STORAGE_KEYS.AUDIT_LOGS, this.auditLogs);
     return newLog;
   }
 
@@ -56,6 +95,7 @@ export class MockAuditService implements IAuditService {
     };
 
     this.securityEvents.unshift(newEvent);
+    saveToStorage(DEMO_STORAGE_KEYS.SECURITY_EVENTS, this.securityEvents);
 
     // Also record in audit log
     await this.recordEvent({
@@ -84,6 +124,7 @@ export class MockAuditService implements IAuditService {
     if (evt) {
       evt.status = 'RESOLVED';
       evt.actionTaken = actionNote;
+      saveToStorage(DEMO_STORAGE_KEYS.SECURITY_EVENTS, this.securityEvents);
     }
   }
 }

@@ -1,16 +1,46 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { ISmartBoxService } from './interfaces';
 import { SmartBox, Compartment } from '../types';
 import { INITIAL_SMART_BOXES } from '../data/mockData';
 import { smartLockService } from './SmartLockService';
 import { auditService } from './AuditService';
+import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage';
 
 export class MockSmartBoxService implements ISmartBoxService {
-  private boxes: SmartBox[] = [...INITIAL_SMART_BOXES];
+  private boxes: SmartBox[] = [];
+  private listeners: ((boxes: SmartBox[]) => void)[] = [];
+
+  constructor() {
+    const stored = loadFromStorage<SmartBox[] | null>(DEMO_STORAGE_KEYS.BOXES, null);
+    if (stored && Array.isArray(stored) && stored.length > 0) {
+      this.boxes = stored;
+    } else {
+      this.boxes = [...INITIAL_SMART_BOXES];
+      saveToStorage(DEMO_STORAGE_KEYS.BOXES, this.boxes);
+    }
+  }
+
+  subscribe(listener: (boxes: SmartBox[]) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notify() {
+    saveToStorage(DEMO_STORAGE_KEYS.BOXES, this.boxes);
+    const cloned = [...this.boxes];
+    this.listeners.forEach((l) => l(cloned));
+  }
+
+  getAllBoxesSync(): SmartBox[] {
+    return [...this.boxes];
+  }
+
+  resetToSeedData(): SmartBox[] {
+    this.boxes = [...INITIAL_SMART_BOXES];
+    this.notify();
+    return [...this.boxes];
+  }
 
   async getBox(boxId: string): Promise<SmartBox | undefined> {
     return this.boxes.find((b) => b.id === boxId);
@@ -33,6 +63,7 @@ export class MockSmartBoxService implements ISmartBoxService {
 
     comp.status = 'RESERVED';
     comp.currentOrderId = orderId;
+    this.notify();
     return true;
   }
 
@@ -45,6 +76,7 @@ export class MockSmartBoxService implements ISmartBoxService {
     comp.status = 'AVAILABLE';
     comp.currentOrderId = undefined;
     comp.currentWeightKg = 0;
+    this.notify();
     return true;
   }
 
@@ -55,6 +87,7 @@ export class MockSmartBoxService implements ISmartBoxService {
     if (!comp) return;
 
     comp.currentWeightKg = weightKg;
+    this.notify();
   }
 
   /**
@@ -176,15 +209,29 @@ export class MockSmartBoxService implements ISmartBoxService {
       result: 'SUCCESS',
       details: `[SIMULATED HARDWARE] رصد حساس الوزن الديناميكي للوزن الجديد: +${packageWeightKg} كجم`,
     });
+    this.notify();
+    // Box remains OPEN and UNLOCKED until secureCompartment is explicitly invoked.
+  }
 
-    // Step 3: Close Door & Lock
+  /**
+   * Secures and locks the compartment after package deposit:
+   * 1. Solenoid latch engages and locks
+   * 2. Door closes (Reed switch closed 100%)
+   * 3. Audits DOOR_CLOSED and SMART_BOX_LOCKED
+   */
+  async secureCompartment(boxId: string, compartmentId: string): Promise<void> {
     await smartLockService.lock(boxId, compartmentId);
-    box.isLocked = true;
-    box.isDoorOpen = false;
-    if (comp) {
-      comp.isSolenoidLocked = true;
-      comp.isDoorClosed = true;
+    const box = this.boxes.find((b) => b.id === boxId);
+    if (box) {
+      box.isLocked = true;
+      box.isDoorOpen = false;
+      const comp = box.compartments.find((c) => c.id === compartmentId);
+      if (comp) {
+        comp.isSolenoidLocked = true;
+        comp.isDoorClosed = true;
+      }
     }
+    this.notify();
 
     await auditService.recordEvent({
       actor: 'محاكي العتاد الذكي (IoT Box Hardware)',

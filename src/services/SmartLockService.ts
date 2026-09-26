@@ -18,6 +18,7 @@ export class MockSmartLockService implements ISmartLockService {
 
   constructor() {
     // Initial mock states for BOX-102
+    this.locksState.set('BOX-102-01', { isLocked: true, isDoorClosed: true });
     this.locksState.set('BOX-102-02', { isLocked: true, isDoorClosed: true });
     this.batteryState.set('BOX-102', { level: 99, voltage: '12.4V DC' });
     this.tamperState.set('BOX-102', { isTampered: false, vibrationG: 0.1, count: 0 });
@@ -26,11 +27,11 @@ export class MockSmartLockService implements ISmartLockService {
     this.tamperState.set('BOX-408', { isTampered: true, vibrationG: 4.8, count: 3 });
   }
 
-  private getKey(boxId: string, compartmentId: string = '02') {
+  private getKey(boxId: string, compartmentId: string = '01') {
     return `${boxId}-${compartmentId}`;
   }
 
-  async unlock(boxId: string, compartmentId: string = '02'): Promise<{ success: boolean; message: string }> {
+  async unlock(boxId: string, compartmentId: string = '01'): Promise<{ success: boolean; message: string }> {
     const key = this.getKey(boxId, compartmentId);
     this.locksState.set(key, { isLocked: false, isDoorClosed: false });
     return {
@@ -39,7 +40,7 @@ export class MockSmartLockService implements ISmartLockService {
     };
   }
 
-  async lock(boxId: string, compartmentId: string = '02'): Promise<{ success: boolean; message: string }> {
+  async lock(boxId: string, compartmentId: string = '01'): Promise<{ success: boolean; message: string }> {
     const key = this.getKey(boxId, compartmentId);
     this.locksState.set(key, { isLocked: true, isDoorClosed: true });
     return {
@@ -48,7 +49,7 @@ export class MockSmartLockService implements ISmartLockService {
     };
   }
 
-  async getLockStatus(boxId: string, compartmentId: string = '02'): Promise<LockStateResult> {
+  async getLockStatus(boxId: string, compartmentId: string = '01'): Promise<LockStateResult> {
     const key = this.getKey(boxId, compartmentId);
     const state = this.locksState.get(key) || { isLocked: true, isDoorClosed: true };
     return {
@@ -58,7 +59,7 @@ export class MockSmartLockService implements ISmartLockService {
     };
   }
 
-  async getDoorStatus(boxId: string, compartmentId: string = '02'): Promise<DoorStateResult> {
+  async getDoorStatus(boxId: string, compartmentId: string = '01'): Promise<DoorStateResult> {
     const key = this.getKey(boxId, compartmentId);
     const state = this.locksState.get(key) || { isLocked: true, isDoorClosed: true };
     return {

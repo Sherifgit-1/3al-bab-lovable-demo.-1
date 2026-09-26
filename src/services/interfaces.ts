@@ -71,6 +71,7 @@ export interface ISmartBoxService {
   releaseCompartment(boxId: string, compartmentId: string): Promise<boolean>;
   updateWeight(boxId: string, compartmentId: string, weightKg: number): Promise<void>;
   simulatePhysicalCycle(boxId: string, compartmentId: string, packageWeightKg: number, orderId?: string): Promise<void>;
+  secureCompartment(boxId: string, compartmentId: string): Promise<void>;
   validateCompartmentAccess(boxId: string, compartmentId: string, orderId: string): Promise<{ valid: boolean; reason?: string }>;
 }
 
@@ -202,6 +203,10 @@ export interface IOrderService {
     additionalData?: Partial<Order>
   ): Promise<{ success: boolean; message: string; order?: Order }>;
   assignDriver(orderId: string, driverId: string, role: ActorRole): Promise<{ success: boolean; message: string; order?: Order }>;
+  confirmOrderCustomer(orderId: string): Promise<{ success: boolean; message: string; order?: Order }>;
+  confirmOrderMerchant(orderId: string): Promise<{ success: boolean; message: string; order?: Order }>;
+  attachPODPhoto(orderId: string, photoUrl: string): Promise<{ success: boolean; message: string; order?: Order }>;
+  sendPODToCustomer(orderId: string): Promise<{ success: boolean; message: string; order?: Order }>;
   cancelOrder(orderId: string, role: ActorRole, reason?: string): Promise<{ success: boolean; message: string; order?: Order }>;
   rejectOrder(orderId: string, role: ActorRole, reason?: string): Promise<{ success: boolean; message: string; order?: Order }>;
   subscribe(listener: (orders: Order[]) => void): () => void;

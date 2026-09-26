@@ -1,10 +1,18 @@
 @import "tailwindcss";
 
+:root {
+  --background: #F6F9FC;
+  --card: #FFFFFF;
+  --primary: #2563EB;
+  --primary-light: #EFF6FF;
+  --text: #0F172A;
+}
+
 @layer base {
   body {
     font-family: 'Cairo', 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: #0b1320;
-    color: #f1f5f9;
+    background-color: var(--background);
+    color: var(--text);
   }
 }
 
@@ -14,12 +22,21 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b1320;
+  background: var(--background);
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #cbd5e1;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #94a3b8;
+}
+
+@keyframes toastProgress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
 }

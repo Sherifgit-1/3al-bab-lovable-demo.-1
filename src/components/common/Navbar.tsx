@@ -25,10 +25,12 @@ import {
   User,
   Home,
   Package,
+  PackageCheck,
   KeyRound,
   FilePlus2,
   Activity,
   Sliders,
+  MessageSquare,
 } from 'lucide-react';
 
 export const Navbar: React.FC<{
@@ -127,6 +129,18 @@ export const Navbar: React.FC<{
                   <span>الرئيسية</span>
                 </button>
                 <button
+                  id="desktop-nav-orders"
+                  onClick={() => setCustomerView('ORDERS')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                    customerView === 'ORDERS' || customerView === 'ORDER_DETAILS'
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <PackageCheck className="w-3.5 h-3.5" />
+                  <span>طلباتي</span>
+                </button>
+                <button
                   onClick={() => setCustomerView('TRACKING')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
                     customerView === 'TRACKING'
@@ -158,6 +172,28 @@ export const Navbar: React.FC<{
                 >
                   <FilePlus2 className="w-3.5 h-3.5" />
                   <span>شحنة خارجية</span>
+                </button>
+                <button
+                  onClick={() => setCustomerView('MERCHANT_LIST')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                    customerView === 'MERCHANT_LIST' || customerView === 'MERCHANT_PROFILE'
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <Store className="w-3.5 h-3.5" />
+                  <span>المتاجر</span>
+                </button>
+                <button
+                  onClick={() => setCustomerView('CHAT')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                    customerView === 'CHAT'
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>الدردشة والطلب</span>
                 </button>
               </div>
             )}
