@@ -16,6 +16,9 @@ export const DEMO_STORAGE_KEYS = {
   ACTIVE_ORDER_ID: 'tawseel_demo_active_order_id',
   DEMO_STEP: 'tawseel_demo_step',
   DRIVER_STEP: 'tawseel_demo_driver_step',
+  MERCHANT_DRAFTS: 'tawseel_demo_merchant_drafts',
+  ACTIVE_MERCHANT_ID: 'tawseel_demo_active_merchant_id',
+  ACCESS_SESSION: 'tawseel_demo_access_session',
 } as const;
 
 export function loadFromStorage<T>(key: string, fallback: T): T {

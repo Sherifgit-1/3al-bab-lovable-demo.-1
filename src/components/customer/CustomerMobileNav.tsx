@@ -14,7 +14,13 @@ import {
 } from 'lucide-react';
 
 export const CustomerMobileNav: React.FC = () => {
-  const { customerView, setCustomerView } = useApp();
+  const {
+    customerView,
+    setCustomerView,
+    openMerchantChat,
+    selectedMerchantId,
+    activeConversation,
+  } = useApp();
 
   const navItems = [
     {
@@ -43,7 +49,10 @@ export const CustomerMobileNav: React.FC = () => {
       label: 'الدردشة',
       icon: MessageSquare,
       isActive: customerView === 'CHAT',
-      onClick: () => setCustomerView('CHAT'),
+      onClick: () => {
+        const targetMerchId = selectedMerchantId || activeConversation?.merchantId || 'merch-5';
+        openMerchantChat(targetMerchId);
+      },
     },
     {
       id: 'ACCOUNT',

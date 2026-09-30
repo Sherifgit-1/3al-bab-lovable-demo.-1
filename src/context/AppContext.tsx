@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   ActorRole,
   Order,
@@ -21,6 +21,7 @@ import {
   ChatMessage,
   MessageType,
   CustomerView,
+  SmartBoxAccessSession,
 } from '../types';
 import {
   INITIAL_ORDERS,
@@ -96,7 +97,8 @@ export interface AppContextType {
   orders: Order[];
   activeOrder: Order;
   setActiveOrder: (order: Order) => void;
-  setActiveOrderId: (id: string) => void;
+  activeOrderId: string | null;
+  setActiveOrderId: (id: string | null) => void;
   boxes: SmartBox[];
   activeBox: SmartBox;
   merchants: Merchant[];
@@ -120,8 +122,12 @@ export interface AppContextType {
   openMerchantChat: (merchantId: string, orderId?: string) => Promise<void>;
   sendChatMessage: (text: string, type?: MessageType, imageUrl?: string) => Promise<void>;
   sendMerchantReply: (text: string, type?: MessageType, imageUrl?: string) => Promise<void>;
-  confirmOrderByCustomer: (orderId?: string) => Promise<void>;
-  confirmOrderByMerchant: (orderId?: string) => Promise<void>;
+  confirmOrderByCustomer: (orderId?: string, merchantId?: string) => Promise<void>;
+  confirmOrderByMerchant: (orderId?: string, merchantId?: string) => Promise<void>;
+  createOrderForMerchant: (merchantId: string, items?: any[]) => Promise<Order>;
+  merchantDrafts: Record<string, any>;
+  saveMerchantDraft: (merchantId: string, draft: any) => void;
+  getMerchantDraft: (merchantId: string) => any;
   generateDeliveryOTP: (
     orderId?: string
   ) => Promise<{ success: boolean; authorization?: TemporaryAccessAuthorization; message: string }>;
@@ -171,6 +177,7 @@ export interface AppContextType {
     expiresInMins?: number;
   }) => Promise<TemporaryAccessAuthorization>;
   customerAuthorizeAccess: (orderId: string) => Promise<void>;
+  customerRejectAccess: (orderId: string, reason?: string) => Promise<void>;
 
   // Merchant actions
   acceptOrder: (orderId: string) => Promise<void>;
@@ -191,6 +198,8 @@ export interface AppContextType {
   driverSecureBox: (orderId: string) => Promise<void>;
   driverCompleteDelivery: (orderId: string) => Promise<void>;
   driverFailDelivery: (orderId: string, reason?: string) => Promise<void>;
+  accessSession: SmartBoxAccessSession | null;
+  driverExpireAccessSession: (orderId: string) => Promise<void>;
 
   // General Status Transition with RBAC
   updateOrderStatus: (
@@ -202,6 +211,16 @@ export interface AppContextType {
   // Notification actions
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
+
+  // Demo Cleanup Action
+  cleanupUnfinishedDemoOrders: () => Promise<{
+    success: boolean;
+    removedCount: number;
+    message: string;
+  }>;
+
+  // Single Order State Sync Helper
+  refreshOrdersFromService: () => Promise<Order[]>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -216,18 +235,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   const [orders, setOrders] = useState<Order[]>(() => orderService.getAllOrdersSync());
-  const [activeOrderId, setActiveOrderId] = useState<string>(() =>
-    loadFromStorage(DEMO_STORAGE_KEYS.ACTIVE_ORDER_ID, 'TW-1001')
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(() =>
+    loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_ORDER_ID, 'TW-1001')
   );
   const [boxes, setBoxes] = useState<SmartBox[]>(() => smartBoxService.getAllBoxesSync());
   const [merchants] = useState<Merchant[]>(INITIAL_MERCHANTS);
   const [drivers] = useState<Driver[]>(INITIAL_DRIVERS);
   const [products] = useState<Product[]>(INITIAL_PRODUCTS);
-  const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>('merch-1');
-  const [cart, setCart] = useState<CartItem[]>([
-    { product: INITIAL_PRODUCTS[0], quantity: 1 },
-    { product: INITIAL_PRODUCTS[2], quantity: 1 },
-  ]);
+  const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(() =>
+    loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_MERCHANT_ID, 'merch-5')
+  );
+  const [cart, setCart] = useState<CartItem[]>([]);
 
   const [authorizations, setAuthorizations] = useState<TemporaryAccessAuthorization[]>(() =>
     authorizationService.getAllAuthorizationsSync()
@@ -236,38 +254,103 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>(() => auditService.getSecurityEventsSync());
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => notificationService.getNotificationsSync());
 
-  const [selectedMerchantProfileId, setSelectedMerchantProfileId] = useState<string | null>('merch-5');
+  const [selectedMerchantProfileId, setSelectedMerchantProfileId] = useState<string | null>(() =>
+    loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_MERCHANT_ID, 'merch-5')
+  );
+
+  const [merchantDrafts, setMerchantDrafts] = useState<Record<string, any>>(() =>
+    loadFromStorage<Record<string, any>>(DEMO_STORAGE_KEYS.MERCHANT_DRAFTS, {})
+  );
+
+  const saveMerchantDraft = (merchantId: string, draft: any) => {
+    setMerchantDrafts((prev) => {
+      const updated = { ...prev, [merchantId]: { ...(prev[merchantId] || {}), ...draft } };
+      saveToStorage(DEMO_STORAGE_KEYS.MERCHANT_DRAFTS, updated);
+      return updated;
+    });
+  };
+
+  const getMerchantDraft = (merchantId: string) => {
+    return merchantDrafts[merchantId] || null;
+  };
+
   const [conversations, setConversations] = useState<Conversation[]>(() => chatService.getConversationsSync());
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(() => {
     const convs = chatService.getConversationsSync();
+    const storedMerchId = loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_MERCHANT_ID, 'merch-5');
+    if (storedMerchId) {
+      const match = convs.find((c) => c.merchantId === storedMerchId);
+      if (match) return match;
+    }
     return convs.find((c) => c.orderId === 'TW-1001') || convs[0] || null;
   });
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => chatService.getAllMessagesSync());
+
+  const activeConversationRef = useRef<Conversation | null>(activeConversation);
+  useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    const convs = chatService.getConversationsSync();
+    const storedMerchId = loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_MERCHANT_ID, 'merch-5');
+    const initialActive =
+      (storedMerchId ? convs.find((c) => c.merchantId === storedMerchId) : null) ||
+      convs.find((c) => c.orderId === 'TW-1001') ||
+      convs[0] ||
+      null;
+    if (initialActive) {
+      return chatService.getAllMessagesSync().filter((m) => m.conversationId === initialActive.id);
+    }
+    return [];
+  });
 
   // Hardware Simulation State - persisted
   const [hardwareSim, setHardwareSim] = useState<HardwareSimState>(() =>
     loadFromStorage(DEMO_STORAGE_KEYS.HARDWARE_SIM, DEFAULT_HARDWARE_SIM)
   );
 
+  // Smart Box Access Session (5 minutes from box opening)
+  const [accessSession, setAccessSession] = useState<SmartBoxAccessSession | null>(() =>
+    loadFromStorage<SmartBoxAccessSession | null>(DEMO_STORAGE_KEYS.ACCESS_SESSION, null)
+  );
+
   const [demoStep, setDemoStep] = useState<number>(() =>
     loadFromStorage(DEMO_STORAGE_KEYS.DEMO_STEP, 1)
   );
 
-  const refreshChat = async () => {
+  const refreshChat = async (targetConvId?: string) => {
     const convs = await chatService.getConversations();
     setConversations([...convs]);
-    if (activeConversation) {
-      const msgs = await chatService.getMessages(activeConversation.id);
-      setChatMessages([...msgs]);
+    const currentConvId = targetConvId || activeConversationRef.current?.id;
+    if (currentConvId) {
+      const msgs = await chatService.getMessages(currentConvId);
+      if (activeConversationRef.current?.id === currentConvId) {
+        setChatMessages(msgs.filter((m) => m.conversationId === currentConvId));
+      }
+    } else {
+      setChatMessages([]);
     }
   };
+
+  // Sync chat messages whenever activeConversation changes
+  useEffect(() => {
+    if (activeConversation) {
+      chatService.getMessages(activeConversation.id).then((msgs) => {
+        if (activeConversationRef.current?.id === activeConversation.id) {
+          setChatMessages(msgs.filter((m) => m.conversationId === activeConversation.id));
+        }
+      });
+    } else {
+      setChatMessages([]);
+    }
+  }, [activeConversation?.id]);
 
   useEffect(() => {
     const unsubscribeChat = chatService.subscribe(() => {
       refreshChat();
     });
     return unsubscribeChat;
-  }, [activeConversation]);
+  }, []);
 
   useEffect(() => {
     // Initial fetch from services
@@ -327,6 +410,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAuditLogs([...logs]);
     setSecurityEvents([...events]);
     setNotifications([...notifs]);
+  };
+
+  const refreshOrdersFromService = async (): Promise<Order[]> => {
+    const all = await orderService.getAllOrders();
+    setOrders([...all]);
+    return all;
   };
 
   const activeOrder = orders.find((o) => o.id === activeOrderId) || orders[0] || INITIAL_ORDERS[0];
@@ -428,6 +517,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       options?.extra
     );
     refreshAuditAndSecurity();
+    await refreshOrdersFromService();
     return res;
   };
 
@@ -445,7 +535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): Promise<Order> => {
     let orderItems: any[];
     let compSize: CompartmentSize;
-    let merchantId = 'merch-1';
+    let merchantId = selectedMerchantId || 'merch-5';
     let deliveryAddress = 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس';
     let deliveryNotes = '';
     let targetBoxId = 'BOX-102';
@@ -453,10 +543,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(paramsOrItems)) {
       orderItems = paramsOrItems;
       compSize = maybeSize || 'M';
+      merchantId = selectedMerchantId || 'merch-5';
     } else {
       orderItems = paramsOrItems.items;
       compSize = paramsOrItems.compartmentSize;
-      merchantId = paramsOrItems.merchantId || selectedMerchantId || 'merch-1';
+      merchantId = paramsOrItems.merchantId || selectedMerchantId || 'merch-5';
       deliveryAddress = paramsOrItems.deliveryAddress || deliveryAddress;
       deliveryNotes = paramsOrItems.deliveryNotes || '';
       targetBoxId = paramsOrItems.smartBoxId || targetBoxId;
@@ -469,7 +560,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerName: 'أحمد مصطفى',
       customerPhone: '+20 100 123 4567',
       merchantId: merchantObj.id,
-      merchantName: merchantObj.name,
+      merchantName: merchantObj.businessName || merchantObj.name,
       smartBoxId: targetBoxId,
       compartmentId: '02',
       compartmentSize: compSize,
@@ -478,9 +569,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deliveryNotes,
     });
 
+    if (activeConversation && activeConversation.merchantId === merchantObj.id) {
+      activeConversation.orderId = newOrder.id;
+      chatService.updateConversationOrder(activeConversation.id, newOrder.id);
+    }
+
     setActiveOrderId(newOrder.id);
     clearCart();
     refreshAuditAndSecurity();
+    return newOrder;
+  };
+
+  const createOrderForMerchant = async (merchantId: string, customItems?: any[]): Promise<Order> => {
+    const merchantObj = merchants.find((m) => m.id === merchantId) || merchants[0];
+    const merchantProducts = products.filter((p) => p.merchantId === merchantId);
+
+    let itemsToOrder: any[];
+    if (customItems && customItems.length > 0) {
+      itemsToOrder = customItems;
+    } else if (merchantProducts.length > 0) {
+      itemsToOrder = [
+        {
+          id: merchantProducts[0].id,
+          name: merchantProducts[0].name,
+          specs: merchantProducts[0].specs || merchantProducts[0].category,
+          quantity: 1,
+          price: merchantProducts[0].price,
+        },
+        ...(merchantProducts.length > 1
+          ? [
+              {
+                id: merchantProducts[1].id,
+                name: merchantProducts[1].name,
+                specs: merchantProducts[1].specs || merchantProducts[1].category,
+                quantity: 1,
+                price: merchantProducts[1].price,
+              },
+            ]
+          : []),
+      ];
+    } else {
+      itemsToOrder = [
+        {
+          id: `item-${Date.now()}`,
+          name: `طلب معتمد من ${merchantObj.businessName || merchantObj.name}`,
+          specs: merchantObj.category,
+          quantity: 1,
+          price: 150,
+        },
+      ];
+    }
+
+    const compSize = merchantProducts[0]?.compartmentSize || 'M';
+    const newOrder = await orderService.createOrder({
+      customerId: 'cust-1',
+      customerName: 'أحمد مصطفى',
+      customerPhone: '+20 100 123 4567',
+      merchantId: merchantObj.id,
+      merchantName: merchantObj.businessName || merchantObj.name,
+      smartBoxId: 'BOX-102',
+      compartmentId: '01',
+      compartmentSize: compSize,
+      items: itemsToOrder,
+      deliveryAddress: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس',
+      deliveryNotes: `طلب مباشر تم إنشاؤه عبر المحادثة مع ${merchantObj.businessName || merchantObj.name}`,
+    });
+
+    const conv = await chatService.getOrCreateConversation('cust-1', merchantId, newOrder.id);
+    conv.orderId = newOrder.id;
+    chatService.updateConversationOrder(conv.id, newOrder.id);
+    activeConversationRef.current = conv;
+    setActiveConversation(conv);
+
+    const all = await orderService.getAllOrders();
+    setOrders([...all]);
+    setActiveOrderId(newOrder.id);
+    refreshAuditAndSecurity();
+    await refreshChat(conv.id);
+
     return newOrder;
   };
 
@@ -572,11 +738,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // --- Customer & Merchant Chat and Confirmation Handlers ---
   const openMerchantChat = async (merchantId: string, orderId?: string) => {
-    const targetOrderId = orderId || (merchantId === 'merch-5' ? 'TW-1001' : undefined);
+    setSelectedMerchantId(merchantId);
+    setSelectedMerchantProfileId(merchantId);
+    saveToStorage(DEMO_STORAGE_KEYS.ACTIVE_MERCHANT_ID, merchantId);
+
+    // Immediately clear chat messages to avoid showing messages from previous merchant
+    setChatMessages([]);
+
+    let targetOrderId = orderId;
+    if (!targetOrderId) {
+      if (merchantId === 'merch-5') {
+        targetOrderId = 'TW-1001';
+      } else {
+        const existingOrd = orders.find((o) => o.merchantId === merchantId && o.customerId === 'cust-1');
+        if (existingOrd) targetOrderId = existingOrd.id;
+      }
+    }
+
     const conv = await chatService.getOrCreateConversation('cust-1', merchantId, targetOrderId);
+    activeConversationRef.current = conv;
     setActiveConversation(conv);
     const msgs = await chatService.getMessages(conv.id);
-    setChatMessages([...msgs]);
+    if (activeConversationRef.current?.id === conv.id) {
+      setChatMessages(msgs.filter((m) => m.conversationId === conv.id));
+    }
     setCustomerView('CHAT');
   };
 
@@ -608,8 +793,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await refreshChat();
   };
 
-  const confirmOrderByCustomer = async (orderId?: string) => {
-    const targetId = orderId || activeOrder?.id || 'TW-1001';
+  const confirmOrderByCustomer = async (orderId?: string, merchantId?: string) => {
+    let targetId = orderId;
+    const currentMerchantId = merchantId || activeConversation?.merchantId || selectedMerchantId;
+
+    if (!targetId && currentMerchantId) {
+      const match = orders.find((o) => o.merchantId === currentMerchantId && (activeConversation?.orderId ? o.id === activeConversation.orderId : true));
+      if (match) {
+        targetId = match.id;
+      } else {
+        const newOrd = await createOrderForMerchant(currentMerchantId);
+        targetId = newOrd.id;
+      }
+    }
+
+    if (!targetId) {
+      targetId = activeOrder?.id || 'TW-1001';
+    }
+
     const res = await orderService.confirmOrderCustomer(targetId);
     const ord = res.order || (await orderService.getOrder(targetId));
     if (!ord) return;
@@ -654,8 +855,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await refreshChat();
   };
 
-  const confirmOrderByMerchant = async (orderId?: string) => {
-    const targetId = orderId || activeOrder?.id || 'TW-1001';
+  const confirmOrderByMerchant = async (orderId?: string, merchantId?: string) => {
+    let targetId = orderId;
+    const currentMerchantId = merchantId || activeConversation?.merchantId || selectedMerchantId;
+
+    if (!targetId && currentMerchantId) {
+      const match = orders.find((o) => o.merchantId === currentMerchantId && (activeConversation?.orderId ? o.id === activeConversation.orderId : true));
+      if (match) {
+        targetId = match.id;
+      }
+    }
+
+    if (!targetId) {
+      targetId = activeOrder?.id || 'TW-1001';
+    }
+
     const res = await orderService.confirmOrderMerchant(targetId);
     const ord = res.order || (await orderService.getOrder(targetId));
     if (!ord) return;
@@ -687,7 +901,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (activeConversation) {
         await chatService.sendMessage({
           conversationId: activeConversation.id,
-          senderId: ord.merchantId || 'merch-5',
+          senderId: ord.merchantId || currentMerchantId || 'merch-5',
           senderRole: 'MERCHANT',
           messageType: 'SYSTEM',
           text: `✓ قام المتجر بتأكيد تفاصيل وأسعار الطلب #${targetId}. بانتظار تأكيد العميل.`,
@@ -737,6 +951,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         servOrd.customerConfirmed = true;
         servOrd.merchantConfirmed = true;
       }
+    }
+
+    // Strict Safety: Enforce DRIVER_ARRIVED requirement inside the authorization/OTP path too
+    if (ord.status !== 'DRIVER_ARRIVED' && ord.status !== 'ACCESS_AUTHORIZED') {
+      return {
+        success: false,
+        message: 'لا يمكن إصدار تصريح التوصيل أو رمز OTP إلا بعد وصول المندوب أمام الصندوق الذكي (DRIVER_ARRIVED).',
+      };
     }
 
     // 2. Verify customerConfirmed === true
@@ -809,34 +1031,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       driverVehicle: ord.driverVehicle,
     });
 
-    if (ord.status === 'ACCEPTED' || ord.status === 'PENDING') {
-      await orderService.updateOrderStatus(
-        ord.id,
-        'ASSIGNED_TO_DRIVER',
-        'MERCHANT',
-        ord.merchantId,
-        ord.merchantName
-      );
-    }
+
 
     const allOrders = await orderService.getAllOrders();
     setOrders([...allOrders]);
 
     // 12. Make the current authorization available to the Driver flow (present in state and service)
 
-    // 13. Update the conversation with a SYSTEM message saying that delivery access authorization was generated
-    const conv = activeConversation || (await chatService.getConversationByOrder(ord.id));
-    if (conv) {
-      await chatService.sendMessage({
-        conversationId: conv.id,
-        senderId: 'system',
-        senderRole: 'ADMIN',
-        messageType: 'SYSTEM',
-        text: `🔐 تم إصدار تصريح التوصيل (Delivery Access Authorization) للطلب #${ord.id}. الصندوق الذكي: ${auth.smartBoxId}، الحجيرة: ${auth.compartmentId}، المندوب المعتمد: ${auth.driverName}. صلاحية التصريح: 5 دقائق.`,
-        orderId: ord.id,
-      });
-      await refreshChat();
-    }
+    // 13. Security isolation: The normal customer <-> merchant chat remains separate from delivery authorization.
+    // Do NOT send OTP or delivery authorization messages through the merchant chat.
 
     // 14. Do NOT put the plaintext OTP into AuditService
     refreshAuditAndSecurity();
@@ -921,7 +1124,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const driverRequestAccess = async (
     orderId: string
   ): Promise<{ success: boolean; message: string }> => {
-    const ord = orders.find((o) => o.id === orderId);
     const auth =
       authorizations.find((a) => a.orderId === orderId && a.status === 'ACTIVE') ||
       (await authorizationService.getAuthorizationByOrder(orderId));
@@ -929,37 +1131,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!auth || auth.status !== 'ACTIVE') {
       return {
         success: false,
-        message: 'لا يوجد تصريح توصيل نشط. يجب على العميل إصدار OTP أولاً.',
+        message: 'تم الوصول — في انتظار موافقة العميل.',
       };
     }
 
-    await orderService.updateOrderStatus(
-      orderId,
-      'ACCESS_AUTHORIZED',
-      'DRIVER',
-      ord?.driverId || 'drv-1',
-      ord?.driverName || 'إسلام عامر'
-    );
-    setDriverStep(3);
-    refreshAuditAndSecurity();
     return {
       success: true,
-      message: 'ACCESS_AUTHORIZED',
+      message: 'العميل قام بالموافقة على فتح الصندوق وتصريح الوصول نشط.',
     };
   };
 
   const customerAuthorizeAccess = async (orderId: string) => {
+    const ord = orders.find((o) => o.id === orderId) || (await orderService.getOrder(orderId));
+    if (!ord) {
+      throw new Error('الطلب غير موجود');
+    }
+
+    // Verify order is DRIVER_ARRIVED
+    if (ord.status !== 'DRIVER_ARRIVED' && ord.status !== 'ACCESS_AUTHORIZED') {
+      throw new Error('لا يمكن منح إذن الوصول إلا بعد وصول المندوب أمام الصندوق (DRIVER_ARRIVED).');
+    }
+
     const existing =
       authorizations.find((a) => a.orderId === orderId && a.status === 'ACTIVE') ||
       (await authorizationService.getAuthorizationByOrder(orderId));
 
     if (!existing || existing.status !== 'ACTIVE') {
-      const ord = orders.find((o) => o.id === orderId);
+      ord.customerConfirmed = true;
+      ord.merchantConfirmed = true;
       const servOrd = await orderService.getOrder(orderId);
-      if (ord) {
-        ord.customerConfirmed = true;
-        ord.merchantConfirmed = true;
-      }
       if (servOrd) {
         servOrd.customerConfirmed = true;
         servOrd.merchantConfirmed = true;
@@ -974,9 +1174,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       orderId,
       'ACCESS_AUTHORIZED',
       'CUSTOMER',
-      'cust-1',
-      'أحمد مصطفى'
+      ord.customerId || 'cust-1',
+      ord.customerName || 'أحمد مصطفى'
     );
+    await refreshOrdersFromService();
+
+    // In-App Push Notification for assigned driver simulation
+    await notificationService.notify(
+      '🔐 تصريح فتح الصندوق',
+      'العميل سمح لك بفتح Smart Box. التصريح صالح لمدة 5 دقائق.',
+      'SECURITY',
+      { orderId, smartBoxId: ord.smartBoxId }
+    );
+    setNotifications([...notificationService.getNotificationsSync()]);
+
+    refreshAuditAndSecurity();
+  };
+
+  const customerRejectAccess = async (orderId: string, reason = 'رفض العميل السماح للمندوب بفتح الصندوق') => {
+    const ord = orders.find((o) => o.id === orderId);
+    await auditService.recordEvent({
+      actor: ord?.customerName || 'العميل',
+      actorRole: 'CUSTOMER',
+      orderId,
+      smartBoxId: ord?.smartBoxId || 'BOX-102',
+      compartmentId: ord?.compartmentId || '01',
+      action: 'ACCESS_DENIED',
+      result: 'WARNING',
+      details: reason,
+    });
     refreshAuditAndSecurity();
   };
 
@@ -1004,7 +1230,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: valResult.reason || 'فشل التحقق من التصريح' };
     }
 
-    // Access granted -> transitions to OTP_VALIDATED and authorization status becomes USED
+    // Access granted -> transitions to OTP_VALIDATED
+    // Authorization remains ACTIVE until completeAccess marks it USED in step 11
     await orderService.updateOrderStatus(
       orderId,
       'OTP_VALIDATED',
@@ -1018,10 +1245,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         a.orderId === orderId
           ? {
               ...a,
-              status: 'USED',
               otpValidated: true,
               isOtpConsumed: true,
-              usedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+              otpValidatedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
             }
           : a
       )
@@ -1038,36 +1264,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const driverOpenBox = async (orderId: string) => {
     const ord = orders.find((o) => o.id === orderId);
+    if (!ord) throw new Error('الطلب غير موجود');
     const boxId = ord?.smartBoxId || 'BOX-102';
     const compId = ord?.compartmentId || '01';
 
-    // Hardware security check: Ensure access has been validated via OTP before unlocking
-    const isAuth = await authorizationService.isAccessAuthorized(boxId, compId, orderId);
-    if (!isAuth) {
-      await auditService.recordSecurityIncident({
-        incidentCode: `INC-DIRECT-OPEN-${Math.floor(Math.random() * 9000 + 1000)}#`,
-        severity: 'HIGH',
-        smartBoxId: boxId,
-        compartmentId: compId,
-        title: 'محاولة فتح الصندوق بدون إكمال التحقق من OTP',
-        description: `حاول المندوب فتح الحجيرة للطلب ${orderId} بدون استيفاء توثيق OTP ساري المفعول`,
-        status: 'ACTIVE',
-        actionTaken: 'تم منع فك القفل وتجميد الأمر',
-        location: 'موقع الصندوق الذكي',
-      });
-      throw new Error('غير مصرح بفتح الصندوق. يرجى إدخال رمز OTP ساري وتوثيقه أولاً.');
+    // 1. Perform authorization validation using the existing authorization service
+    const valResult = await authorizationService.validateAccess({
+      customerId: ord.customerId || 'cust-1',
+      orderId: ord.id,
+      driverId: ord.driverId || 'drv-1',
+      smartBoxId: boxId,
+      compartmentId: compId,
+    });
+
+    if (!valResult.granted) {
+      refreshAuditAndSecurity();
+      throw new Error(valResult.reason || 'فشل التحقق من تصريح الوصول للصندوق الذكي.');
     }
 
+    // 2. Unlock Smart Lock
     await smartLockService.unlock(boxId, compId);
+
+    // 3. Start 5-minute Smart Box Access Session
+    const now = Date.now();
+    const session: SmartBoxAccessSession = {
+      orderId,
+      smartBoxId: boxId,
+      compartmentId: compId,
+      startedAt: now,
+      expiresAt: now + 5 * 60 * 1000,
+      status: 'ACTIVE',
+    };
+    setAccessSession(session);
+    saveToStorage(DEMO_STORAGE_KEYS.ACCESS_SESSION, session);
+
+    // 4. Update hardware simulation
     setHardwareSim((prev) => ({
       ...prev,
       boxId,
       compartmentId: compId,
       isSolenoidLocked: false,
       isDoorClosed: false,
-      lastActionMessage: '[عتاد ذكي] انفتح قفل السولينويد وارتد الباب (85°)',
+      lastActionMessage: '[عتاد ذكي] انفتح قفل السولينويد وبدأت جلسة إيداع الطرد المؤقتة (5:00 دقائق)',
     }));
 
+    // 5. Update order status
     await orderService.updateOrderStatus(
       orderId,
       'SMART_BOX_OPENED',
@@ -1075,6 +1316,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ord?.driverId || 'drv-1',
       ord?.driverName || 'إسلام عامر'
     );
+    await refreshOrdersFromService();
     setDriverStep(4);
     refreshAuditAndSecurity();
   };
@@ -1100,6 +1342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ord?.driverId || 'drv-1',
       ord?.driverName || 'إسلام عامر'
     );
+    await refreshOrdersFromService();
     setDriverStep(4);
     refreshAuditAndSecurity();
   };
@@ -1120,6 +1363,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       lastActionMessage: '[عتاد ذكي] أُغلق الباب وتم تأمين القفل الكهرومغناطيسي 100%',
     }));
 
+    // End access session
+    setAccessSession((prev) => {
+      if (!prev) return null;
+      const updated = { ...prev, status: 'COMPLETED' as const };
+      saveToStorage(DEMO_STORAGE_KEYS.ACCESS_SESSION, updated);
+      return updated;
+    });
+
+    // Consume Driver Authorization
+    await authorizationService.completeAccess(orderId);
+    setAuthorizations((prev) =>
+      prev.map((a) =>
+        a.orderId === orderId
+          ? {
+              ...a,
+              status: 'USED',
+              isOtpConsumed: true,
+              usedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+            }
+          : a
+      )
+    );
+
     await orderService.updateOrderStatus(
       orderId,
       'SMART_BOX_SECURED',
@@ -1127,7 +1393,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ord?.driverId || 'drv-1',
       ord?.driverName || 'إسلام عامر'
     );
+    await refreshOrdersFromService();
     setDriverStep(4);
+    refreshAuditAndSecurity();
+  };
+
+  const driverExpireAccessSession = async (orderId: string) => {
+    const ord = orders.find((o) => o.id === orderId);
+    const boxId = ord?.smartBoxId || 'BOX-102';
+    const compId = ord?.compartmentId || '01';
+
+    // 1. Secure and lock the physical compartment automatically
+    await smartBoxService.secureCompartment(boxId, compId);
+
+    setHardwareSim((prev) => ({
+      ...prev,
+      boxId,
+      compartmentId: compId,
+      isSolenoidLocked: true,
+      isDoorClosed: true,
+      lastActionMessage: '[عتاد ذكي] انتهت مهلة جلسة فتح الصندوق (5 دقائق) وتم تأمين وقفل الصندوق آلياً',
+    }));
+
+    // 2. Mark access session status as EXPIRED
+    setAccessSession((prev) => {
+      const updated = {
+        orderId,
+        smartBoxId: boxId,
+        compartmentId: compId,
+        startedAt: prev?.startedAt || Date.now() - 5 * 60 * 1000,
+        expiresAt: Date.now(),
+        status: 'EXPIRED' as const,
+      };
+      saveToStorage(DEMO_STORAGE_KEYS.ACCESS_SESSION, updated);
+      return updated;
+    });
+
+    // 3. Mark driver authorization as EXPIRED and consumed (single-use expired)
+    const auth = await authorizationService.getAuthorizationByOrder(orderId);
+    if (auth) {
+      auth.status = 'EXPIRED';
+      auth.isOtpConsumed = true;
+      setAuthorizations((prev) =>
+        prev.map((a) => (a.orderId === orderId ? { ...a, status: 'EXPIRED', isOtpConsumed: true } : a))
+      );
+    }
+
+    // 4. Record audit security incident for automatic timeout lock
+    await auditService.recordSecurityIncident({
+      incidentCode: `INC-SESSEXP-${Math.floor(Math.random() * 9000 + 1000)}#`,
+      severity: 'MEDIUM',
+      smartBoxId: boxId,
+      compartmentId: compId,
+      title: 'انقضاء مهلة جلسة فتح الصندوق المؤقتة',
+      description: `انتهت مهلة الـ 5 دقائق لجلسة فتح الحجيرة للطلب ${orderId} وتم تأمين وقفل الصندوق تلقائياً`,
+      status: 'RESOLVED',
+      actionTaken: 'تم قفل المزلاج وتأمين الصندوق وسحب الصلاحية آلياً',
+      location: 'موقع الصندوق الذكي',
+    });
+
+    // 5. Update order state to SMART_BOX_SECURED if open and refresh React orders
+    const currentOrder = orders.find((o) => o.id === orderId);
+    if (currentOrder && currentOrder.status !== 'SMART_BOX_SECURED' && currentOrder.status !== 'COMPLETED') {
+      await orderService.updateOrderStatus(
+        orderId,
+        'SMART_BOX_SECURED',
+        'DRIVER',
+        ord?.driverId || 'drv-1',
+        ord?.driverName || 'إسلام عامر'
+      );
+    }
+
+    await refreshOrdersFromService();
     refreshAuditAndSecurity();
   };
 
@@ -1150,24 +1487,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         proofOfDeliverySentToCustomer: true,
       }
     );
+    await refreshOrdersFromService();
 
     // Complete access and mark authorization as USED after verified physical closure
     await authorizationService.completeAccess(orderId);
+    setAuthorizations((prev) =>
+      prev.map((a) =>
+        a.orderId === orderId
+          ? {
+              ...a,
+              status: 'USED',
+              isOtpConsumed: true,
+              usedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+            }
+          : a
+      )
+    );
 
-    // Post Proof of Delivery message to linked conversation
-    const conv = await chatService.getConversationByOrder(orderId);
-    if (conv) {
-      await chatService.sendMessage({
-        conversationId: conv.id,
-        senderId: ord?.driverId || 'drv-1',
-        senderRole: 'DRIVER',
-        messageType: 'PROOF_OF_DELIVERY',
-        text: `📸 تم تسليم وتأمين الطرد بالحجيرة ${compId} بالصندوق الذكي ${boxId} بنجاح. الوزن المقاس: ${pod.weightKg} كجم. التوثيق الرقمي: ${pod.hash.slice(0, 16)}...`,
-        imageUrl: pod.photoUrl,
-        orderId,
-      });
-      await refreshChat();
-    }
+    // Send delivery completion notification (customer, driver, merchant)
+    await notificationService.notify(
+      'اكتمل التوصيل بنجاح',
+      `تم إيداع وتأمين الطلب #${orderId} في الصندوق الذكي ${boxId} بالحجيرة ${compId}.`,
+      'DELIVERY',
+      { orderId, smartBoxId: boxId }
+    );
 
     setDriverStep(5);
     refreshAuditAndSecurity();
@@ -1217,26 +1560,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await markOrderPreparing(demoId);
         setRole('MERCHANT');
         break;
-      case 5: // Merchant makes ready (READY) & hands to driver (ASSIGNED_TO_DRIVER)
+      case 5: // Merchant makes ready (READY) & assigns to driver (ASSIGNED_TO_DRIVER)
+        // Strict Security Rule: Never generate OTP or authorization when driver is assigned or merchant marks ready.
         await markOrderReady(demoId);
         await assignOrderToDriver(demoId, 'drv-1');
-        // Customer confirmation & Customer Generate OTP flow creates the delivery authorization
-        {
-          const ord = orders.find((o) => o.id === demoId);
-          if (ord) {
-            ord.customerConfirmed = true;
-            ord.merchantConfirmed = true;
-          }
-          const servOrd = await orderService.getOrder(demoId);
-          if (servOrd) {
-            servOrd.customerConfirmed = true;
-            servOrd.merchantConfirmed = true;
-          }
-          const curAuth = authorizations.find((a) => a.orderId === demoId && a.status === 'ACTIVE');
-          if (!curAuth) {
-            await generateDeliveryOTP(demoId);
-          }
-        }
         setRole('MERCHANT');
         break;
       case 6: // Driver in transit (PICKED_UP -> OUT_FOR_DELIVERY)
@@ -1247,49 +1574,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         break;
       case 7: // Driver arrives at box (DRIVER_ARRIVED)
         await driverArriveAtBox(demoId);
-        setRole('DRIVER');
-        setDriverStep(2);
+        setRole('CUSTOMER');
+        setCustomerView('TRACKING');
         break;
-      case 8: // Driver requests access (ACCESS_AUTHORIZED) using existing customer authorization
-        await driverRequestAccess(demoId);
+      case 8: // Customer authorizes access (ACCESS_AUTHORIZED) - 5-min Driver Authorization created & in-app push notification dispatched
+        await customerAuthorizeAccess(demoId);
         setRole('DRIVER');
         setDriverStep(3);
         break;
-      case 9: // Smart Box unlocks (OTP_VALIDATED -> SMART_BOX_OPENED)
-        // 1. Find the current ACTIVE authorization for TW-1001
-        // 2. Read its current dynamically generated OTP internally
-        // 3. Pass that OTP to the demo driver validation function
-        const activeAuth = authorizations.find((a) => a.orderId === demoId && a.status === 'ACTIVE') ||
-          (await authorizationService.getAuthorizationByOrder(demoId));
-        if (activeAuth?.otp) {
-          await driverSubmitOTP(demoId, activeAuth.otp);
-        }
+      case 9: // Driver receives in-app push notification & opens authorization card
+        setRole('DRIVER');
+        setDriverStep(3);
+        break;
+      case 10: // Driver opens Smart Box (SMART_BOX_OPENED) & 5-min Access Session starts
         await driverOpenBox(demoId);
         setRole('DRIVER');
         setDriverStep(4);
         break;
-      case 10: // Package deposited + weight detected (PACKAGE_DEPOSITED)
+      case 11: // Package deposited + weight detected (PACKAGE_DEPOSITED)
         await driverDepositPackage(demoId, 1.4);
         setRole('DRIVER');
         setDriverStep(4);
         break;
-      case 11: // Door closed & locked (SMART_BOX_SECURED)
+      case 12: // Driver secures box: door closed & solenoid locked (SMART_BOX_SECURED)
         await driverSecureBox(demoId);
         setRole('DRIVER');
         setDriverStep(4);
         break;
-      case 12: // Delivery completes with 2K POD camera photo (COMPLETED)
+      case 13: // Delivery completes: authorization becomes USED (COMPLETED)
         await driverCompleteDelivery(demoId);
         setRole('DRIVER');
         setDriverStep(5);
         break;
-      case 13: // Customer views notification & tracking (COMPLETED)
+      case 14: // Customer views notification & tracking (COMPLETED)
         setRole('CUSTOMER');
         setCustomerView('TRACKING');
-        break;
-      case 14: // Merchant views COMPLETED order
-        setRole('MERCHANT');
-        setMerchantView('DASHBOARD');
         break;
       case 15: // Admin inspects complete audit trail & security center
         setRole('ADMIN');
@@ -1325,11 +1644,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRole('CUSTOMER');
     setCustomerView('TRACKING');
 
+    setAccessSession(null);
+    saveToStorage(DEMO_STORAGE_KEYS.ACCESS_SESSION, null);
+
     setHardwareSim(DEFAULT_HARDWARE_SIM);
     saveToStorage(DEMO_STORAGE_KEYS.HARDWARE_SIM, DEFAULT_HARDWARE_SIM);
     saveToStorage(DEMO_STORAGE_KEYS.DEMO_STEP, 1);
     saveToStorage(DEMO_STORAGE_KEYS.DRIVER_STEP, 1);
     saveToStorage(DEMO_STORAGE_KEYS.ACTIVE_ORDER_ID, 'TW-1001');
+  };
+
+  const cleanupUnfinishedDemoOrders = async (): Promise<{
+    success: boolean;
+    removedCount: number;
+    message: string;
+  }> => {
+    const currentOrders = orderService.getAllOrdersSync();
+    const unfinished = currentOrders.filter((o) => o.status !== 'COMPLETED');
+
+    if (unfinished.length === 0) {
+      const emptyMsg = 'لا توجد طلبات غير مكتملة.';
+      await notificationService.notify('تنظيف الطلبات التجريبية', emptyMsg, 'SYSTEM');
+      setNotifications(notificationService.getNotificationsSync());
+      return {
+        success: false,
+        removedCount: 0,
+        message: emptyMsg,
+      };
+    }
+
+    const removedOrderIds = unfinished.map((o) => o.id);
+
+    // 2. Mark those orders as CANCELLED first where appropriate for audit/state consistency
+    unfinished.forEach((order) => {
+      auditService.recordEvent({
+        actor: 'نظام التجربة (Demo Cleanup)',
+        actorRole: 'ADMIN',
+        orderId: order.id,
+        smartBoxId: order.smartBoxId || 'BOX-102',
+        action: 'ORDER_CANCELLED',
+        result: 'SUCCESS',
+        details: 'إلغاء وتنظيف طلب تجريبي غير مكتمل لإفساح المجال لاختبار جديد',
+      });
+    });
+
+    // 3 & 4. Remove unfinished/cancelled Demo orders and keep COMPLETED orders untouched
+    const cleanupResult = orderService.cleanupUnfinishedOrders();
+    setOrders([...cleanupResult.remainingOrders]);
+
+    // 5. Clean related Demo-only state for removed orders:
+    // - temporary authorizations & delivery authorization state
+    const remainingAuths = authorizationService.removeAuthorizationsForOrders(removedOrderIds);
+    setAuthorizations([...remainingAuths]);
+
+    // - active Smart Box Access Sessions
+    if (accessSession && removedOrderIds.includes(accessSession.orderId)) {
+      setAccessSession(null);
+      saveToStorage(DEMO_STORAGE_KEYS.ACCESS_SESSION, null);
+    }
+
+    // - Driver & Customer notifications related to those orders
+    const remainingNotifs = notificationService.removeNotificationsForOrders(removedOrderIds);
+    setNotifications([...remainingNotifs]);
+
+    // 6. If the current active order is removed: set activeOrderId = null
+    if (activeOrderId && removedOrderIds.includes(activeOrderId)) {
+      setActiveOrderId(null);
+      saveToStorage(DEMO_STORAGE_KEYS.ACTIVE_ORDER_ID, null);
+      setDriverStep(1);
+      saveToStorage(DEMO_STORAGE_KEYS.DRIVER_STEP, 1);
+    }
+
+    // Reset hardware sim sensors if box was left open during the abandoned test
+    if (!hardwareSim.isSolenoidLocked || !hardwareSim.isDoorClosed || hardwareSim.weightKg > 0) {
+      setHardwareSim(DEFAULT_HARDWARE_SIM);
+      saveToStorage(DEMO_STORAGE_KEYS.HARDWARE_SIM, DEFAULT_HARDWARE_SIM);
+    }
+
+    // 11. Show success notification
+    const successMsg = 'تم تنظيف الطلبات غير المكتملة بنجاح.\nيمكنك الآن إنشاء طلب جديد للاختبار.';
+    await notificationService.notify('تنظيف الطلبات التجريبية', successMsg, 'SYSTEM');
+    setNotifications(notificationService.getNotificationsSync());
+
+    return {
+      success: true,
+      removedCount: removedOrderIds.length,
+      message: successMsg,
+    };
   };
 
   const markNotificationRead = (id: string) => {
@@ -1358,6 +1759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         orders,
         activeOrder,
         setActiveOrder: (ord) => setActiveOrderId(ord.id),
+        activeOrderId,
         setActiveOrderId,
         boxes,
         activeBox,
@@ -1377,6 +1779,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendMerchantReply,
         confirmOrderByCustomer,
         confirmOrderByMerchant,
+        createOrderForMerchant,
+        merchantDrafts,
+        saveMerchantDraft,
+        getMerchantDraft,
         generateDeliveryOTP,
         cart,
         addToCart,
@@ -1402,6 +1808,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createExternalOrder,
         createDelegation,
         customerAuthorizeAccess,
+        customerRejectAccess,
         acceptOrder,
         rejectOrder,
         markOrderPreparing,
@@ -1418,9 +1825,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         driverSecureBox,
         driverCompleteDelivery,
         driverFailDelivery,
+        accessSession,
+        driverExpireAccessSession,
         updateOrderStatus,
         markNotificationRead,
         markAllNotificationsRead,
+        cleanupUnfinishedDemoOrders,
+        refreshOrdersFromService,
       }}
     >
       {children}

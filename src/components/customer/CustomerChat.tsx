@@ -13,14 +13,11 @@ import {
   CheckCircle2,
   Clock,
   FileText,
-  Image as ImageIcon,
   Sparkles,
   Camera,
-  Box,
   Truck,
   ShieldCheck,
   ChevronLeft,
-  RotateCcw,
   Check,
   Package,
   KeyRound,
@@ -34,24 +31,66 @@ export const CustomerChat: React.FC = () => {
     chatMessages,
     merchants,
     orders,
-    activeOrder,
+    products,
+    selectedMerchantId,
+    setSelectedMerchantProfileId,
     setCustomerView,
     sendChatMessage,
     sendMerchantReply,
     confirmOrderByCustomer,
     confirmOrderByMerchant,
-    generateDeliveryOTP,
+    createOrderForMerchant,
+    getMerchantDraft,
+    saveMerchantDraft,
     authorizations,
     setActiveOrderId,
-    advanceDemoWorkflow,
+    openMerchantChat,
   } = useApp();
 
   const [inputText, setInputText] = useState('');
   const [senderMode, setSenderMode] = useState<'CUSTOMER' | 'MERCHANT'>('CUSTOMER');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const merchant = merchants.find((m) => m.id === activeConversation?.merchantId) || merchants[0];
-  const linkedOrder = orders.find((o) => o.id === activeConversation?.orderId) || activeOrder;
+  // Compute active merchant: prioritize selected merchant, then conversation merchant, never hardcoded
+  const merchant =
+    merchants.find((m) => m.id === selectedMerchantId) ||
+    merchants.find((m) => m.id === activeConversation?.merchantId) ||
+    merchants[0];
+
+  // Auto-sync conversation when selected merchant changes
+  useEffect(() => {
+    if (merchant && activeConversation?.merchantId !== merchant.id) {
+      openMerchantChat(merchant.id);
+    }
+  }, [merchant.id, activeConversation?.merchantId, openMerchantChat]);
+
+  // Merchant-specific products
+  const merchantProducts = products.filter((p) => p.merchantId === merchant.id);
+
+  // Linked order: MUST be strictly scoped to this merchant. Never leak another merchant's order (e.g. TW-1001) into this chat
+  const linkedOrder = orders.find(
+    (o) => o.merchantId === merchant.id && (activeConversation?.orderId ? o.id === activeConversation.orderId : true)
+  );
+
+  // Filter messages to strictly guarantee ONLY the active conversation's messages are displayed
+  const activeChatMessages = chatMessages.filter(
+    (m) => m.conversationId === activeConversation?.id
+  );
+
+  // Restore merchant-specific draft input
+  useEffect(() => {
+    const draft = getMerchantDraft(merchant.id);
+    if (draft?.inputText !== undefined) {
+      setInputText(draft.inputText);
+    } else {
+      setInputText('');
+    }
+  }, [merchant.id]);
+
+  const handleInputChange = (text: string) => {
+    setInputText(text);
+    saveMerchantDraft(merchant.id, { inputText: text });
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,46 +98,137 @@ export const CustomerChat: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [chatMessages]);
+  }, [activeChatMessages]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim()) return;
 
+    const textToSend = inputText.trim();
     if (senderMode === 'CUSTOMER') {
-      await sendChatMessage(inputText.trim(), 'TEXT');
+      await sendChatMessage(textToSend, 'TEXT');
     } else {
-      await sendMerchantReply(inputText.trim(), 'TEXT');
+      await sendMerchantReply(textToSend, 'TEXT');
     }
     setInputText('');
+    saveMerchantDraft(merchant.id, { inputText: '' });
   };
 
+  // Determine merchant category/type for contextual presets
+  const isRestaurant =
+    merchant.category.includes('مطاعم') ||
+    merchant.category.includes('مأكولات') ||
+    merchant.id === 'merch-5';
+
+  const isPharmacy =
+    merchant.category.includes('صيدليات') ||
+    merchant.category.includes('طبية') ||
+    merchant.id === 'merch-2';
+
+  const isElectronics =
+    merchant.category.includes('إلكترونيات') ||
+    merchant.category.includes('أجهزة') ||
+    merchant.id === 'merch-1';
+
+  const isSupermarket =
+    merchant.category.includes('سوبرماركت') ||
+    merchant.category.includes('مؤن') ||
+    merchant.id === 'merch-3';
+
+  // Dynamic context-aware presets
+  const quickCustomerPresetLabel = isRestaurant
+    ? '🍔 طلب وجبة شاورما وبطاطس'
+    : isPharmacy
+    ? '💊 طلب مستلزمات طبية وفيتامينات'
+    : isElectronics
+    ? '⚡ طلب شاحن وسماعة بلوتوث'
+    : isSupermarket
+    ? '🛒 طلب سلة مؤن وبن فاخر'
+    : `📦 طلب منتجات من ${merchant.name}`;
+
+  const quickCustomerPresetText = isRestaurant
+    ? 'عايز 2 شاورما وواحد بطاطس والتوصيل للصندوق الذكي BOX-102'
+    : isPharmacy
+    ? 'مرحباً دكتور، أحتاج فيتامين C فوار وجهاز قياس الضغط والتوصيل للصندوق الذكي BOX-102'
+    : isElectronics
+    ? 'مرحباً، هل متوفر شاحن أنكر 65W وسماعة ساوند كور والتوصيل للصندوق الذكي BOX-102؟'
+    : isSupermarket
+    ? 'عايز سلة مؤن غذائية أساسية وبن برازيلي مطحون والتوصيل للصندوق الذكي BOX-102'
+    : `مرحباً، أرغب بطلب مستلزمات من ${merchant.businessName || merchant.name} والتوصيل للصندوق الذكي BOX-102`;
+
+  const handwrittenLabel = isPharmacy ? '📝 روشتة طبية بخط اليد' : '📝 إرسال طلب بخط اليد';
+
+  const handwrittenText = isRestaurant
+    ? '📝 طلب مكتوب بخط اليد:\n- 2 شاورما لحم سوري سوبر\n- 1 بطاطس مقلية كريسبي\n- التوصيل إلى الصندوق الذكي BOX-102 (حجيرة 01)'
+    : isPharmacy
+    ? '📝 روشتة طبية بخط اليد:\n- فيتامين C + زنك أقراص فوارة\n- جهاز قياس ضغط الدم الرقمي الأوتوماتيكي\n- حقيبة إسعافات أولية منزلية\n- التوصيل إلى الصندوق الذكي BOX-102 (حجيرة 01)'
+    : isElectronics
+    ? '📝 قائمة مستلزمات تقنية:\n- شاحن أنكر نانو 65W GaN\n- كابل تايب سي مجدول 2م\n- سماعة Soundcore بلوتوث\n- التوصيل إلى الصندوق الذكي BOX-102'
+    : isSupermarket
+    ? '📝 قائمة مشتريات تموينية:\n- سلة مؤن غذائية أساسية\n- بن برازيلي فاخر 500 جم\n- التوصيل إلى الصندوق الذكي BOX-102'
+    : `📝 طلب أصناف بخط اليد:\n- منتجات ومستلزمات مختارة\n- التوصيل إلى الصندوق الذكي BOX-102`;
+
+  const handwrittenImage = isPharmacy
+    ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=600&q=80'
+    : isRestaurant
+    ? 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?auto=format&fit=crop&w=600&q=80'
+    : 'https://images.unsplash.com/photo-1517842645767-c639042777db?auto=format&fit=crop&w=600&q=80';
+
+  const merchantAdjustmentLabel = isRestaurant
+    ? '🏪 رد المطعم: استبدال بالكول سلو'
+    : isPharmacy
+    ? '🏥 رد الصيدلية: توفر الأدوية والتعقيم'
+    : isElectronics
+    ? '🔌 رد المتجر: الضمان والجاهزية'
+    : isSupermarket
+    ? '🏪 رد الهايبرماركت: جاهزية التعبئة'
+    : '🏪 رد المتجر: تأكيد توفر الأصناف';
+
+  const merchantAdjustmentText = isRestaurant
+    ? 'أهلاً بك يا فندم! البطاطس خلصت، ممكن نستبدلها بكول سلو إضافي؟'
+    : isPharmacy
+    ? 'أهلاً بك يا فندم! الأدوية والمستلزمات الطبية متوفرة وجاهزة، وتم تعقيم العبوة بالكامل قبل الإيداع بالصندوق.'
+    : isElectronics
+    ? 'أهلاً بك يا فندم! الأجهزة أصلية مع ضمان سنتين معتمد وتم تجهيزها للتسليم للمندوب فوراً.'
+    : isSupermarket
+    ? 'أهلاً بك! تم تجهيز طلبك وتعبئته بأكياس مخصصة للإيداع الآمن بالصندوق الذكي.'
+    : `أهلاً بك يا فندم! الأصناف متوفرة وجاهزة للتجهيز والإيداع بالصندوق فور اعتمادك.`;
+
+  const customerAgreementLabel = '👍 موافقة العميل والتوصيل للصندوق';
+  const customerAgreementText = isPharmacy
+    ? 'موافق ومعتمد، برجاء إيداع الطرد بالحجيرة المبردة بالصندوق الذكي BOX-102'
+    : 'موافق، ومحتاج التوصيل للصندوق الذكي BOX-102';
+
   const handleSendHandwrittenOrder = async () => {
-    await sendChatMessage(
-      '📝 طلب مكتوب بخط اليد:\n- 2 شاورما لحم سوبر كول سلو\n- 1 بطاطس فارم فريتس مقرمشة\n- التوصيل إلى الصندوق الذكي BOX-102 (حجيرة 01)',
-      'HANDWRITTEN_ORDER',
-      'https://images.unsplash.com/photo-1517842645767-c639042777db?auto=format&fit=crop&w=600&q=80'
-    );
+    await sendChatMessage(handwrittenText, 'HANDWRITTEN_ORDER', handwrittenImage);
   };
 
   const handleSendQuickCustomerPreset = async () => {
-    await sendChatMessage('عايز 2 شاورما وواحد بطاطس والتوصيل للصندوق الذكي BOX-102', 'TEXT');
+    await sendChatMessage(quickCustomerPresetText, 'TEXT');
   };
 
   const handleSendMerchantAdjustment = async () => {
-    await sendMerchantReply('أهلاً بك يا فندم! البطاطس خلصت، ممكن نستبدلها بكول سلو؟', 'TEXT');
+    await sendMerchantReply(merchantAdjustmentText, 'TEXT');
   };
 
   const handleSendCustomerAgreement = async () => {
-    await sendChatMessage('موافق، ومحتاج التوصيل للصندوق الذكي BOX-102', 'TEXT');
+    await sendChatMessage(customerAgreementText, 'TEXT');
   };
 
   const handleCustomerConfirm = async () => {
-    await confirmOrderByCustomer(linkedOrder?.id);
+    let orderToConfirm = linkedOrder;
+    if (!orderToConfirm) {
+      orderToConfirm = await createOrderForMerchant(merchant.id);
+    }
+    await confirmOrderByCustomer(orderToConfirm.id, merchant.id);
   };
 
   const handleMerchantConfirm = async () => {
-    await confirmOrderByMerchant(linkedOrder?.id);
+    let orderToConfirm = linkedOrder;
+    if (!orderToConfirm) {
+      orderToConfirm = await createOrderForMerchant(merchant.id);
+    }
+    await confirmOrderByMerchant(orderToConfirm.id, merchant.id);
   };
 
   const bothConfirmed = Boolean(linkedOrder?.customerConfirmed && linkedOrder?.merchantConfirmed);
@@ -107,7 +237,6 @@ export const CustomerChat: React.FC = () => {
   );
 
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
-  const [isGeneratingOTP, setIsGeneratingOTP] = useState<boolean>(false);
   const [otpError, setOtpError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -131,33 +260,19 @@ export const CustomerChat: React.FC = () => {
     return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleGenerateDeliveryOTP = async () => {
-    if (!bothConfirmed || !linkedOrder) return;
-    setIsGeneratingOTP(true);
-    setOtpError(null);
-    try {
-      const res = await generateDeliveryOTP(linkedOrder.id);
-      if (res && !res.success) {
-        setOtpError(res.message || 'فشل إصدار تصريح التوصيل');
-      }
-    } catch (err: any) {
-      console.error('Error generating delivery OTP:', err);
-      setOtpError(err?.message || 'حدث خطأ أثناء إصدار رمز التوصيل');
-    } finally {
-      setIsGeneratingOTP(false);
-    }
-  };
-
   return (
     <div className="space-y-4 animate-in fade-in duration-150 max-w-4xl mx-auto">
       {/* Top Breadcrumb & Controls */}
       <div className="flex items-center justify-between">
         <button
-          onClick={() => setCustomerView('MERCHANT_PROFILE')}
+          onClick={() => {
+            setSelectedMerchantProfileId(merchant.id);
+            setCustomerView('MERCHANT_PROFILE');
+          }}
           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 transition-colors"
         >
           <ArrowRight className="w-4 h-4" />
-          <span>العودة لملف المتجر</span>
+          <span>العودة لملف {merchant.name}</span>
         </button>
 
         <div className="flex items-center gap-2">
@@ -174,6 +289,14 @@ export const CustomerChat: React.FC = () => {
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
           )}
+
+          <button
+            onClick={() => setCustomerView('MERCHANT_LIST')}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-colors"
+          >
+            <Store className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">تغيير المتجر</span>
+          </button>
         </div>
       </div>
 
@@ -211,46 +334,82 @@ export const CustomerChat: React.FC = () => {
 
           {/* Confirmation Status Badges */}
           <div className="flex items-center gap-2 text-xs">
-            <div
-              className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 font-semibold text-[11px] ${
-                linkedOrder?.customerConfirmed
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200'
-              }`}
-            >
-              {linkedOrder?.customerConfirmed ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>تأكيد العميل ✓</span>
-                </>
-              ) : (
-                <>
-                  <Clock className="w-3.5 h-3.5 text-amber-600" />
-                  <span>بانتظار تأكيد العميل</span>
-                </>
-              )}
-            </div>
+            {linkedOrder ? (
+              <>
+                <div
+                  className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 font-semibold text-[11px] ${
+                    linkedOrder.customerConfirmed
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                  }`}
+                >
+                  {linkedOrder.customerConfirmed ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>تأكيد العميل ✓</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span>بانتظار تأكيد العميل</span>
+                    </>
+                  )}
+                </div>
 
-            <div
-              className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 font-semibold text-[11px] ${
-                linkedOrder?.merchantConfirmed
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200'
-              }`}
-            >
-              {linkedOrder?.merchantConfirmed ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>تأكيد المتجر ✓</span>
-                </>
-              ) : (
-                <>
-                  <Clock className="w-3.5 h-3.5 text-amber-600" />
-                  <span>بانتظار تأكيد المتجر</span>
-                </>
-              )}
-            </div>
+                <div
+                  className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 font-semibold text-[11px] ${
+                    linkedOrder.merchantConfirmed
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                  }`}
+                >
+                  {linkedOrder.merchantConfirmed ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>تأكيد المتجر ✓</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span>بانتظار تأكيد المتجر</span>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <span className="text-[11px] font-medium bg-slate-200/80 text-slate-700 px-2.5 py-1 rounded-xl">
+                محادثة مباشرة • لا يوجد طلب مرتبط بعد
+              </span>
+            )}
           </div>
+        </div>
+
+        {/* Merchant Products / Menu Quick-Selection Strip */}
+        <div className="bg-slate-100/90 border-b border-slate-200 px-4 py-2 flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <span className="text-[11px] font-bold text-slate-600 shrink-0 flex items-center gap-1">
+            <Package className="w-3.5 h-3.5 text-blue-600" />
+            <span>منتجات وقائمة {merchant.name}:</span>
+          </span>
+          {merchantProducts.length === 0 ? (
+            <span className="text-[11px] text-slate-400">لا توجد منتجات مسجلة حالياً لهذا المتجر</span>
+          ) : (
+            merchantProducts.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  const messageText = `أرغب بطلب: ${p.name} (${p.price} ج.م)`;
+                  setInputText(messageText);
+                  saveMerchantDraft(merchant.id, { inputText: messageText });
+                }}
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-[11px] font-medium text-slate-700 transition-all shadow-xs"
+                title={`انقر لتجهيز رسالة طلب ${p.name}`}
+              >
+                <span>{p.name}</span>
+                <span className="font-mono font-bold text-blue-600">{p.price} ج.م</span>
+              </button>
+            ))
+          )}
         </div>
 
         {/* Error Notification if OTP generation fails */}
@@ -316,7 +475,7 @@ export const CustomerChat: React.FC = () => {
 
                 <button
                   onClick={() => {
-                    setActiveOrderId(linkedOrder?.id);
+                    if (linkedOrder) setActiveOrderId(linkedOrder.id);
                     setCustomerView('TRACKING');
                   }}
                   className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
@@ -330,73 +489,102 @@ export const CustomerChat: React.FC = () => {
           </div>
         )}
 
-        {/* Both Parties Confirmation Banner with Generate Delivery OTP Button (Section 2) */}
-        {bothConfirmed && !activeAuth && (
-          <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                <CheckCircle2 className="w-5 h-5 text-white" />
+        {/* Order Status & Confirmation Banners */}
+        {linkedOrder ? (
+          <>
+            {bothConfirmed && !activeAuth && (
+              <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-xs">
+                    <span className="font-bold block">
+                      تم تأكيد الطلب #{linkedOrder.id} بنجاح من العميل والمتجر! 🎉
+                    </span>
+                    <span className="text-emerald-100 text-[11px]">
+                      الصندوق: {linkedOrder.smartBoxId || 'BOX-102'} • الحجيرة: {linkedOrder.compartmentId || '01'} • سيصلك إشعار أمني فور وصول المندوب لمنحه إذن الفتح المؤقت.
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (linkedOrder) setActiveOrderId(linkedOrder.id);
+                    setCustomerView('TRACKING');
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>تتبع الشحنة</span>
+                </button>
               </div>
+            )}
+
+            {!bothConfirmed && !activeAuth && (
+              <div className="bg-amber-50/90 border-b border-amber-200/80 p-3 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-amber-900">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="text-xs">
+                    <span className="font-bold">طلب #{linkedOrder.id} قيد الاعتماد من الطرفين</span>
+                    <span className="text-amber-700 text-[11px] block sm:inline sm:mr-2">
+                      (يتطلب تأكيد الطرفين لبدء تجهيز وانطلاق المندوب نحو الصندوق الذكي)
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] shrink-0 font-medium">
+                  <span className={`px-2 py-0.5 rounded-md ${linkedOrder.customerConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 border border-amber-300'}`}>
+                    {linkedOrder.customerConfirmed ? 'العميل: مؤكد ✓' : 'العميل: غير مؤكد'}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-md ${linkedOrder.merchantConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 border border-amber-300'}`}>
+                    {linkedOrder.merchantConfirmed ? 'المتجر: مؤكد ✓' : 'المتجر: غير مؤكد'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="bg-blue-50/90 border-b border-blue-200/80 p-3 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-blue-900">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
               <div className="text-xs">
-                <span className="font-bold block">
-                  تم تأكيد الطلب بنجاح من العميل والمتجر! 🎉
-                </span>
-                <span className="text-emerald-100 text-[11px]">
-                  الصندوق: {linkedOrder?.smartBoxId || 'BOX-102'} • الحجيرة: {linkedOrder?.compartmentId || '01'} • يمكنك الآن إصدار تصريح التوصيل (صلاحية 5 دقائق)
+                <span className="font-bold">محادثة طلب مباشر مع {merchant.businessName || merchant.name}</span>
+                <span className="text-blue-700 text-[11px] block sm:inline sm:mr-2">
+                  (يمكنك تنسيق الطلب مع المتجر مباشرةً ثم النقر على &quot;إنشاء وتأكيد طلب جديد&quot; لحجز الحجيرة)
                 </span>
               </div>
             </div>
 
             <button
-              id="btn-generate-delivery-otp"
-              onClick={handleGenerateDeliveryOTP}
-              disabled={isGeneratingOTP}
-              className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+              onClick={handleCustomerConfirm}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0 self-start sm:self-auto cursor-pointer"
             >
-              <KeyRound className="w-4 h-4 text-slate-950" />
-              <span>{isGeneratingOTP ? 'جارٍ الإصدار...' : 'إصدار OTP للتوصيل'}</span>
+              <Check className="w-3.5 h-3.5" />
+              <span>إنشاء وتأكيد طلب جديد</span>
             </button>
-          </div>
-        )}
-
-        {/* Before Both Confirmations Banner (Section 3) */}
-        {!bothConfirmed && !activeAuth && (
-          <div className="bg-amber-50/90 border-b border-amber-200/80 p-3 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-amber-900">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-              <div className="text-xs">
-                <span className="font-bold">بانتظار تأكيد العميل والمتجر</span>
-                <span className="text-amber-700 text-[11px] block sm:inline sm:mr-2">
-                  (يجب تأكيد الطلب من طرفي المحادثة لتفعيل إصدار OTP للتوصيل)
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] shrink-0 font-medium">
-              <span className={`px-2 py-0.5 rounded-md ${linkedOrder?.customerConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 border border-amber-300'}`}>
-                {linkedOrder?.customerConfirmed ? 'العميل: مؤكد ✓' : 'العميل: غير مؤكد'}
-              </span>
-              <span className={`px-2 py-0.5 rounded-md ${linkedOrder?.merchantConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 border border-amber-300'}`}>
-                {linkedOrder?.merchantConfirmed ? 'المتجر: مؤكد ✓' : 'المتجر: غير مؤكد'}
-              </span>
-            </div>
           </div>
         )}
 
         {/* Message Scroll Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/50">
-          {chatMessages.length === 0 ? (
+          {activeChatMessages.length === 0 ? (
             <div className="text-center py-12 space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto">
                 <Sparkles className="w-6 h-6" />
               </div>
-              <h4 className="font-bold text-slate-800 text-sm">ابدأ المحادثة مع المتجر الآن</h4>
+              <h4 className="font-bold text-slate-800 text-sm">
+                ابدأ المحادثة مع {merchant.businessName || merchant.name}
+              </h4>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                يمكنك كتابة طلبك، إرسال صورة مكتوبة بخط اليد، أو الاستفسار عن توفر الأصناف
-                والتوصيل المباشر لصندوقك الذكي.
+                {isPharmacy
+                  ? 'يمكنك إرسال الروشتة الطبية، الاستفسار عن الأدوية والمستلزمات، وطلب التوصيل بالصندوق الذكي.'
+                  : isRestaurant
+                  ? 'يمكنك كتابة طلبك، إرسال صورة مكتوبة بخط اليد، أو الاستفسار عن المنيو والتوصيل المباشر.'
+                  : 'يمكنك كتابة طلبك، الاستفسار عن توفر المنتجات، والتوصيل المباشر إلى صندوقك الذكي.'}
               </p>
             </div>
           ) : (
-            chatMessages.map((msg) => {
+            activeChatMessages.map((msg) => {
               const isCustomer = msg.senderRole === 'CUSTOMER';
               const isMerchant = msg.senderRole === 'MERCHANT';
               const isDriver = msg.senderRole === 'DRIVER';
@@ -478,7 +666,7 @@ export const CustomerChat: React.FC = () => {
                   >
                     <div className="flex items-center justify-between gap-4 text-[10px] opacity-75">
                       <span className="font-semibold">
-                        {isCustomer ? 'أحمد مصطفى (أنت)' : isDriver ? 'إسلام عامر (المندوب)' : merchant.businessName}
+                        {isCustomer ? 'أحمد مصطفى (أنت)' : isDriver ? 'إسلام عامر (المندوب)' : (merchant.businessName || merchant.name)}
                       </span>
                       <span className="font-mono">{msg.timestamp}</span>
                     </div>
@@ -488,7 +676,7 @@ export const CustomerChat: React.FC = () => {
                       <div className="p-2.5 rounded-xl bg-slate-900/10 border border-current/20 space-y-2">
                         <div className="flex items-center gap-1.5 font-bold text-[11px]">
                           <FileText className="w-3.5 h-3.5" />
-                          <span>صورة طلب مكتوب بخط اليد:</span>
+                          <span>{isPharmacy ? 'روشتة طبية بخط اليد:' : 'صورة طلب مكتوب بخط اليد:'}</span>
                         </div>
                         {msg.imageUrl && (
                           <div className="rounded-lg overflow-hidden h-32 bg-slate-800">
@@ -555,78 +743,62 @@ export const CustomerChat: React.FC = () => {
               onClick={handleSendQuickCustomerPreset}
               className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
             >
-              <span>🍔 طلب 2 شاورما وبطاطس</span>
+              <span>{quickCustomerPresetLabel}</span>
             </button>
 
             <button
               onClick={handleSendHandwrittenOrder}
               className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
             >
-              <span>📝 إرسال طلب بخط اليد</span>
+              <span>{handwrittenLabel}</span>
             </button>
 
             <button
               onClick={handleSendMerchantAdjustment}
               className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
             >
-              <span>🏪 رد التاجر: استبدال بالكول سلو</span>
+              <span>{merchantAdjustmentLabel}</span>
             </button>
 
             <button
               onClick={handleSendCustomerAgreement}
               className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
             >
-              <span>👍 موافقة العميل والتوصيل للصندوق</span>
+              <span>{customerAgreementLabel}</span>
             </button>
 
             {/* Confirmation Buttons */}
-            {!linkedOrder?.customerConfirmed && (
+            {(!linkedOrder || !linkedOrder.customerConfirmed) && (
               <button
                 onClick={handleCustomerConfirm}
-                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1"
+                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
               >
                 <Check className="w-3 h-3" />
-                <span>تأكيد الطلب (العميل)</span>
+                <span>{linkedOrder ? 'تأكيد الطلب (العميل)' : 'إنشاء وتأكيد طلب جديد'}</span>
               </button>
             )}
 
-            {!linkedOrder?.merchantConfirmed && (
+            {linkedOrder && !linkedOrder.merchantConfirmed && (
               <button
                 onClick={handleMerchantConfirm}
-                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1"
+                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
               >
                 <Check className="w-3 h-3" />
                 <span>تأكيد الطلب (التاجر)</span>
               </button>
             )}
 
-            {/* Customer Generate Delivery OTP Button / Status (Section 2 & 3 & 4) */}
-            {bothConfirmed && !activeAuth ? (
+            {/* Tracking link if order is confirmed */}
+            {bothConfirmed && (
               <button
-                id="btn-quick-generate-delivery-otp"
-                onClick={handleGenerateDeliveryOTP}
-                disabled={isGeneratingOTP}
-                title="إصدار رمز OTP وتصريح التوصيل لمدة 5 دقائق"
-                className="px-3 py-1 rounded-lg text-[11px] font-bold shadow-sm transition-all flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer animate-pulse ring-2 ring-amber-300"
+                onClick={() => {
+                  if (linkedOrder) setActiveOrderId(linkedOrder.id);
+                  setCustomerView('TRACKING');
+                }}
+                className="px-3 py-1 rounded-lg text-[11px] font-bold shadow-sm transition-all flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 text-white cursor-pointer"
               >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>{isGeneratingOTP ? 'جارٍ الإصدار...' : 'إصدار OTP للتوصيل'}</span>
-              </button>
-            ) : activeAuth ? (
-              <div
-                className="px-3 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-default"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>تم إصدار تصريح التوصيل ✓</span>
-              </div>
-            ) : (
-              <button
-                disabled={true}
-                title="يتطلب تأكيد الطلب من العميل والمتجر أولاً"
-                className="px-3 py-1 rounded-lg text-[11px] font-medium border border-slate-300 bg-slate-100 text-slate-400 cursor-not-allowed flex items-center gap-1.5 opacity-70"
-              >
-                <Clock className="w-3.5 h-3.5 text-slate-400" />
-                <span>بانتظار تأكيد العميل والمتجر</span>
+                <Truck className="w-3.5 h-3.5" />
+                <span>تتبع الشحنة بالصندوق</span>
               </button>
             )}
           </div>
@@ -637,11 +809,11 @@ export const CustomerChat: React.FC = () => {
           <input
             type="text"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             placeholder={
               senderMode === 'CUSTOMER'
-                ? 'اكتب رسالتك للمتجر هنا...'
-                : 'اكتب رد المتجر على العميل هنا...'
+                ? `اكتب رسالتك إلى ${merchant.name}...`
+                : `اكتب رد المتجر (${merchant.name}) على العميل...`
             }
             className="flex-1 px-4 py-2.5 rounded-2xl bg-slate-100 border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-['Cairo']"
           />
@@ -649,7 +821,7 @@ export const CustomerChat: React.FC = () => {
           <button
             type="submit"
             disabled={!inputText.trim()}
-            className={`p-2.5 rounded-2xl text-white font-bold transition-all shadow-md ${
+            className={`p-2.5 rounded-2xl text-white font-bold transition-all shadow-md cursor-pointer ${
               senderMode === 'CUSTOMER'
                 ? 'bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300'
                 : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300'

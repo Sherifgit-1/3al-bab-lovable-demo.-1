@@ -114,6 +114,15 @@ export interface TemporaryAccessAuthorization {
   isOtpConsumed?: boolean;
 }
 
+export interface SmartBoxAccessSession {
+  orderId: string;
+  smartBoxId: string;
+  compartmentId: string;
+  startedAt: number;
+  expiresAt: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'COMPLETED';
+}
+
 export type AuditAction =
   | 'ORDER_CREATED'
   | 'ORDER_ACCEPTED'
@@ -129,17 +138,21 @@ export type AuditAction =
   | 'ORDER_REJECTED'
   | 'DRIVER_ARRIVED'
   | 'ACCESS_REQUESTED'
+  | 'ACCESS_AUTHORIZED'
   | 'ACCESS_GRANTED'
   | 'AUTHORIZATION_CREATED'
   | 'OTP_GENERATED'
   | 'OTP_VALIDATED'
+  | 'SMART_BOX_OPENED'
   | 'SMART_BOX_UNLOCKED'
   | 'BOX_UNLOCKED'
   | 'DOOR_OPENED'
   | 'PACKAGE_DEPOSITED'
   | 'DOOR_CLOSED'
+  | 'SMART_BOX_SECURED'
   | 'SMART_BOX_LOCKED'
   | 'BOX_LOCKED'
+  | 'COMPLETED'
   | 'DELIVERY_COMPLETED'
   | 'DELIVERY_FAILED'
   | 'ACCESS_DENIED'

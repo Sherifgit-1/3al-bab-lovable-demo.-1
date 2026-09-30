@@ -11,6 +11,7 @@ import {
   Navigation,
   Compass,
   CheckCircle2,
+  Clock,
   KeyRound,
   Lock,
   Unlock,
@@ -38,19 +39,21 @@ export const DriverDeliveryView: React.FC = () => {
     driverPickupOrder,
     driverStartDelivery,
     driverArriveAtBox,
-    driverRequestAccess,
     driverSubmitOTP,
     driverOpenBox,
     driverDepositPackage,
     driverSecureBox,
+    driverExpireAccessSession,
     driverCompleteDelivery,
     hardwareSim,
     authorizations,
+    accessSession,
   } = useApp();
 
   const [otpInput, setOtpInput] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [remainingAuthSeconds, setRemainingAuthSeconds] = useState<number>(300);
 
   // Orders visible to the driver: either assigned to drv-1 or active in delivery
   const driverOrders = orders.filter(
@@ -76,24 +79,82 @@ export const DriverDeliveryView: React.FC = () => {
     (a) => a.orderId === currentOrder?.id && a.status === 'ACTIVE'
   );
 
+  // Countdown timer for active driver authorization (5 minutes window)
+  React.useEffect(() => {
+    if (!activeAuth) {
+      setRemainingAuthSeconds(0);
+      return;
+    }
+    const updateCountdown = () => {
+      const expiresAt = activeAuth.expiresAtTimestamp || (Date.now() + 5 * 60 * 1000);
+      const diff = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      setRemainingAuthSeconds(diff);
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [activeAuth]);
+
+  const [remainingSessionSeconds, setRemainingSessionSeconds] = useState<number>(300);
+
+  // Check if box is currently open in active access session
+  const isAccessSessionActive =
+    Boolean(currentOrder) &&
+    (currentOrder.status === 'SMART_BOX_OPENED' || currentOrder.status === 'PACKAGE_DEPOSITED') &&
+    accessSession?.status === 'ACTIVE' &&
+    accessSession?.orderId === currentOrder?.id;
+
+  const isAccessSessionExpired =
+    Boolean(currentOrder) &&
+    accessSession?.status === 'EXPIRED' &&
+    accessSession?.orderId === currentOrder?.id;
+
+  // Countdown timer for 5-minute Smart Box Access Session (stops when box is secured, auto-expires when reaches 00:00)
+  React.useEffect(() => {
+    if (!isAccessSessionActive || !accessSession?.expiresAt || !currentOrder?.id) {
+      return;
+    }
+    const updateSessionCountdown = () => {
+      const now = Date.now();
+      const diff = Math.floor((accessSession.expiresAt - now) / 1000);
+      if (diff <= 0) {
+        setRemainingSessionSeconds(0);
+        // CRITICAL: Execute Access Session expiration handler automatically!
+        driverExpireAccessSession(currentOrder.id);
+      } else {
+        setRemainingSessionSeconds(diff);
+      }
+    };
+    updateSessionCountdown();
+    const interval = setInterval(updateSessionCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isAccessSessionActive, accessSession?.expiresAt, currentOrder?.id]);
+
+  const formatTimer = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
   // Auto-sync driverStep to match currentOrder.status on load / status change
   React.useEffect(() => {
     if (!currentOrder) return;
-    if (currentOrder.status === 'DRIVER_ARRIVED' && driverStep < 2) {
+    if (currentOrder.status === 'DRIVER_ARRIVED' && !activeAuth && driverStep < 2) {
       setDriverStep(2);
-    } else if (currentOrder.status === 'ACCESS_AUTHORIZED' && driverStep < 3) {
+    } else if (
+      (currentOrder.status === 'ACCESS_AUTHORIZED' || currentOrder.status === 'OTP_VALIDATED' || (currentOrder.status === 'DRIVER_ARRIVED' && activeAuth)) &&
+      driverStep < 3
+    ) {
       setDriverStep(3);
     } else if (
-      ['OTP_VALIDATED', 'SMART_BOX_OPENED', 'PACKAGE_DEPOSITED', 'SMART_BOX_SECURED'].includes(
-        currentOrder.status
-      ) &&
+      ['SMART_BOX_OPENED', 'PACKAGE_DEPOSITED', 'SMART_BOX_SECURED'].includes(currentOrder.status) &&
       driverStep < 4
     ) {
       setDriverStep(4);
     } else if (currentOrder.status === 'COMPLETED' && driverStep < 5) {
       setDriverStep(5);
     }
-  }, [currentOrder?.status]);
+  }, [currentOrder?.status, activeAuth]);
 
   // Lifecycle Actions
   const handlePickup = async () => {
@@ -134,24 +195,9 @@ export const DriverDeliveryView: React.FC = () => {
     }
   };
 
-  const handleRequestAccess = async () => {
-    setIsProcessing(true);
-    setErrorMessage('');
-    try {
-      const res = await driverRequestAccess(currentOrder.id);
-      if (res && !res.success) {
-        setErrorMessage(res.message);
-        return;
-      }
-      setDriverStep(3);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'فشل طلب إذن الوصول');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
-  const handleUnlockSubmit = async () => {
+
+  const handleValidateOtp = async () => {
     setIsProcessing(true);
     setErrorMessage('');
     try {
@@ -160,7 +206,18 @@ export const DriverDeliveryView: React.FC = () => {
         setErrorMessage(res.message);
         return;
       }
-      // Once OTP is validated, automatically trigger open box
+      setDriverStep(3);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل التحقق من رمز OTP');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleOpenBox = async () => {
+    setIsProcessing(true);
+    setErrorMessage('');
+    try {
       await driverOpenBox(currentOrder.id);
       setDriverStep(4);
     } catch (err: any) {
@@ -267,7 +324,7 @@ export const DriverDeliveryView: React.FC = () => {
           {[
             { step: 1, label: 'الملاحة بالخريطة' },
             { step: 2, label: 'الوصول والسياج' },
-            { step: 3, label: 'إدخال رمز OTP' },
+            { step: 3, label: 'تصريح فتح الصندوق' },
             { step: 4, label: 'إيداع الطرد والوزن' },
             { step: 5, label: 'توثيق POD والمكافأة' },
           ].map((s) => {
@@ -276,8 +333,7 @@ export const DriverDeliveryView: React.FC = () => {
             return (
               <div
                 key={s.step}
-                onClick={() => setDriverStep(s.step)}
-                className={`p-2 rounded-xl border cursor-pointer transition-all ${
+                className={`p-2 rounded-xl border select-none transition-all ${
                   isActive
                     ? 'bg-amber-950/80 border-amber-400 text-amber-300 font-bold ring-1 ring-amber-400'
                     : isDone
@@ -399,7 +455,7 @@ export const DriverDeliveryView: React.FC = () => {
                 className="relative z-10 w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm transition-all shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2"
               >
                 <MapPin className="w-4 h-4" />
-                <span>لقد وصلت إلى موقع الصندوق الذكي (DRIVER_ARRIVED)</span>
+                <span>وصلت للصندوق</span>
               </button>
             </div>
           </div>
@@ -416,8 +472,7 @@ export const DriverDeliveryView: React.FC = () => {
           <div className="space-y-1">
             <h3 className="text-lg font-bold text-white">تم التحقق من الموقع الجغرافي بنجاح!</h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              أنت الآن على بعد 8 أمتار من الصندوق الذكي {currentOrder.smartBoxId} (داخل نطاق السياج الجغرافي 20 متراً). يمكنك الآن طلب
-              رمز الفتح أو إدخاله مباشرة.
+              أنت الآن على بعد 8 أمتار من الصندوق الذكي {currentOrder.smartBoxId} (داخل نطاق السياج الجغرافي 20 متراً).
             </p>
           </div>
 
@@ -428,48 +483,115 @@ export const DriverDeliveryView: React.FC = () => {
             </span>
           </div>
 
-          <button
-            onClick={handleRequestAccess}
-            disabled={isProcessing}
-            className="px-8 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs sm:text-sm transition-all shadow-lg shadow-cyan-500/20"
-          >
-            طلب إذن الوصول وإدخال الرمز (ACCESS_AUTHORIZED) ❯
-          </button>
+          {activeAuth ? (
+            <div className="space-y-3 max-w-md mx-auto text-right">
+              {/* In-App Push Notification Simulation */}
+              <div
+                onClick={() => setDriverStep(3)}
+                className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/90 via-slate-900 to-cyan-950/90 border-2 border-cyan-400/80 shadow-xl cursor-pointer hover:border-cyan-300 transition-all space-y-2.5 animate-in zoom-in-95"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
+                    <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                    <span>🔐 تصريح فتح الصندوق</span>
+                  </div>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500 text-slate-950 animate-pulse">
+                    إشعار فوري جديد
+                  </span>
+                </div>
+                <p className="text-xs text-white leading-relaxed">
+                  العميل سمح لك بفتح Smart Box. التصريح صالح لمدة 5 دقائق.
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400 font-mono pt-1 border-t border-slate-800">
+                  <span>الطلب: #{currentOrder.id}</span>
+                  <span>المندوب: {currentOrder.driverName || 'إسلام عامر'}</span>
+                  <span>الصندوق: {currentOrder.smartBoxId}</span>
+                  <span>الحجيرة: {currentOrder.compartmentId || '01'}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setDriverStep(3)}
+                className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs sm:text-sm transition-all shadow-lg shadow-cyan-500/20 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>عرض بطاقة تصريح فتح الصندوق</span>
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/80 max-w-md mx-auto space-y-2">
+              <div className="flex items-center justify-center gap-2 text-amber-400 font-bold text-sm">
+                <Clock className="w-4 h-4 animate-spin text-amber-400" />
+                <span>تم الوصول — في انتظار موافقة العميل</span>
+              </div>
+              <p className="text-xs text-slate-300">
+                تم إشعار العميل بوصولك أمام الصندوق الذكي. لا يمكنك فتح الصندوق إلا بعد موافقة العميل الرسمية.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* PHASE 3: OTP Input & Smart Box Unlock */}
+      {/* PHASE 3: Driver Authorization Card */}
       {driverStep === 3 && (
-        <div className="p-6 rounded-2xl bg-slate-900 border border-cyan-500/40 space-y-5 shadow-2xl">
+        <div className="p-6 rounded-2xl bg-slate-900 border border-cyan-500/40 space-y-5 shadow-2xl animate-in fade-in duration-200">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-cyan-400" />
-              <h3 className="text-base font-bold text-white">فتح الصندوق الذكي ({currentOrder.smartBoxId})</h3>
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-base font-bold text-white">بطاقة تصريح فتح الصندوق</h3>
             </div>
-            <span className="text-xs text-emerald-400 font-mono bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
+            <span className="text-xs text-emerald-400 font-mono bg-emerald-950 px-2.5 py-1 rounded-full border border-emerald-800 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               سياج الموقع: موثق (8م)
             </span>
           </div>
 
-          <div className="space-y-3 text-center">
-            <span className="text-xs text-slate-400">أدخل رمز الدخول المؤقت المعتمد من العميل (OTP):</span>
-
-            <div className="flex justify-center">
-              <input
-                type="text"
-                maxLength={6}
-                value={otpInput}
-                onChange={(e) => setOtpInput(e.target.value)}
-                placeholder="6 أرقام"
-                className="w-56 p-3 rounded-2xl bg-slate-950 border-2 border-cyan-400 text-center font-mono text-2xl font-bold tracking-widest text-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-500/20"
-              />
+          {/* Authorization Card Details */}
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-950/60 via-slate-950 to-cyan-950/60 border border-emerald-500/40 space-y-4">
+            <div className="flex items-center gap-2.5 text-emerald-400">
+              <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+              <div>
+                <h4 className="text-base font-black text-white">العميل وافق على فتح الصندوق</h4>
+                <p className="text-xs text-slate-300">
+                  تم اعتماد التفويض المباشر لفتح مزلاج الحجيرة. اضغط أدناه لفتح الصندوق وبدء جلسة الإيداع.
+                </p>
+              </div>
             </div>
 
-            {activeAuth?.otp && (
-              <p className="text-[11px] text-slate-400 font-mono">
-                SIMULATED DEMO OTP: <code className="text-cyan-400 font-bold">{activeAuth.otp}</code>
-              </p>
-            )}
+            {/* Grid: Order, Smart Box, Compartment, Status */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-slate-400 text-[10px] block">رقم الطلب</span>
+                <span className="font-mono text-white font-bold text-sm">#{currentOrder.id}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-slate-400 text-[10px] block">الصندوق الذكي</span>
+                <span className="font-mono text-cyan-300 font-bold text-sm">{currentOrder.smartBoxId}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-slate-400 text-[10px] block">الحجيرة المخصصة</span>
+                <span className="font-mono text-amber-300 font-bold text-sm">
+                  حجيرة {currentOrder.compartmentId || '01'} ({currentOrder.compartmentSize || 'S'})
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-slate-400 text-[10px] block">حالة التصريح</span>
+                <span className="font-mono text-emerald-400 font-bold text-sm">
+                  {activeAuth?.status === 'ACTIVE' ? 'نشط (SINGLE-USE)' : 'نشط ومصرح'}
+                </span>
+              </div>
+            </div>
+
+            {/* Remaining Authorization Time */}
+            <div className="p-3 rounded-xl bg-slate-900/80 border border-amber-900/60 flex items-center justify-between text-xs">
+              <span className="text-slate-300 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
+                الوقت المتبقي لصلاحية التصريح:
+              </span>
+              <span className="font-mono text-sm sm:text-base text-amber-400 bg-amber-950/90 px-3 py-0.5 rounded-lg border border-amber-800 font-black">
+                {formatTimer(remainingAuthSeconds)}
+              </span>
+            </div>
           </div>
 
           {errorMessage && (
@@ -479,37 +601,15 @@ export const DriverDeliveryView: React.FC = () => {
             </div>
           )}
 
-          {/* Quick NFC/BLE simulation button */}
-          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
-              مزامنة بلوتوث / NFC مشفرة:
-            </span>
-            <button
-              onClick={() => {
-                if (activeAuth?.otp) {
-                  setOtpInput(activeAuth.otp);
-                }
-              }}
-              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold"
-            >
-              استرداد الكود تلقائياً
-            </button>
-          </div>
-
-          {/* Unlock Action Button */}
+          {/* ONE PRIMARY ACTION: Open Box */}
           <button
-            id="driver-submit-otp-btn"
-            onClick={handleUnlockSubmit}
-            disabled={isProcessing}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-sm transition-all shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2"
+            id="driver-open-box-btn"
+            onClick={handleOpenBox}
+            disabled={isProcessing || !activeAuth || activeAuth.status !== 'ACTIVE' || remainingAuthSeconds <= 0}
+            className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm sm:text-base transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Unlock className="w-4 h-4" />
-            <span>
-              {isProcessing
-                ? 'جاري التحقق وفك قفل السولينويد...'
-                : 'التحقق من رمز OTP وفتح الصندوق (OTP_VALIDATED)'}
-            </span>
+            <Unlock className="w-5 h-5" />
+            <span>{isProcessing ? 'جاري التحقق من التصريح وفتح القفل...' : 'فتح الصندوق'}</span>
           </button>
         </div>
       )}
@@ -528,6 +628,72 @@ export const DriverDeliveryView: React.FC = () => {
               حجيرة {currentOrder.compartmentId || '01'} • {currentOrder.smartBoxId}
             </span>
           </div>
+
+          {/* Active 5-minute Smart Box Access Session Banner while box is open */}
+          {isAccessSessionActive && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/90 via-slate-950 to-amber-950/40 border border-cyan-500/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-cyan-300 shadow-lg">
+              <span className="flex items-center gap-2 font-bold text-amber-300 text-sm">
+                <Unlock className="w-4 h-4 text-amber-400 animate-pulse" />
+                <span>الصندوق مفتوح</span>
+              </span>
+              <div className="flex items-center gap-2 font-mono text-xs sm:text-sm text-amber-400 bg-slate-900 px-3.5 py-1.5 rounded-xl border border-amber-800 font-bold">
+                <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                <span>وقت الإيداع المتبقي:</span>
+                <span className="font-black text-amber-300 text-base">{formatTimer(remainingSessionSeconds)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Expiration Card when Access Session reaches 00:00 */}
+          {isAccessSessionExpired && (
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-rose-950/80 via-slate-950 to-amber-950/60 border-2 border-rose-500 space-y-3 text-center shadow-2xl animate-in zoom-in-95">
+              <div className="flex items-center justify-center gap-2 text-rose-400 font-black text-base">
+                <Clock className="w-5 h-5 text-rose-400" />
+                <span>⏱️ انتهت مهلة الإيداع</span>
+              </div>
+              <div className="text-sm font-bold text-emerald-400 flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>تم تأمين الصندوق</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto text-xs font-bold text-slate-300 pt-1">
+                <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>الباب مغلق</span>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>الصندوق مقفول</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 pt-1">
+                انتهت مهلة الـ 5 دقائق وتم قفل الصندوق آلياً. لا يمكن إعادة فتح الصندوق بنفس التصريح.
+              </p>
+            </div>
+          )}
+
+          {/* Secured State Card after Driver successfully closes and locks the box */}
+          {currentOrder.status === 'SMART_BOX_SECURED' && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-950 to-emerald-950/80 border-2 border-emerald-500 space-y-3 text-center shadow-xl animate-in zoom-in-95">
+              <div className="flex items-center justify-center gap-2 text-emerald-400 font-black text-sm sm:text-base">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                <span>✅ تم تأمين الصندوق بنجاح</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-md mx-auto text-xs font-bold text-emerald-300">
+                <div className="p-2 rounded-xl bg-slate-950/90 border border-emerald-700/60 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>الباب مغلق</span>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-950/90 border border-emerald-700/60 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>الصندوق مقفول</span>
+                </div>
+                <div className="p-2 rounded-xl bg-slate-950/90 border border-emerald-700/60 flex items-center justify-center gap-1.5 col-span-2 sm:col-span-1">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>تم تأمين الطلب</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Hardware Diagnostic Telemetry Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -576,43 +742,59 @@ export const DriverDeliveryView: React.FC = () => {
           )}
 
           {/* Step Controls: Deposit Package & Secure Box */}
-          <div className="space-y-2">
-            {currentOrder.status === 'SMART_BOX_OPENED' && (
+          <div className="space-y-3">
+            {currentOrder.status === 'SMART_BOX_OPENED' && !isAccessSessionExpired && (
               <button
                 onClick={handleDepositPackage}
                 disabled={isProcessing}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Package className="w-4 h-4" />
                 <span>إيداع الطرد بالحجيرة (تحسس الوزن +1.4 كجم)</span>
               </button>
             )}
 
-            {currentOrder.status === 'PACKAGE_DEPOSITED' && (
-              <button
-                onClick={handleSecureBox}
-                disabled={isProcessing}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2"
-              >
-                <Lock className="w-4 h-4" />
-                <span>إغلاق الباب وتأمين القفل الكهرومغناطيسي (SMART_BOX_SECURED)</span>
-              </button>
+            {currentOrder.status === 'PACKAGE_DEPOSITED' && !isAccessSessionExpired && (
+              <div className="space-y-3 pt-1 animate-in fade-in">
+                <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-center space-y-1">
+                  <span className="text-emerald-400 font-black text-sm flex items-center justify-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <span>تم رصد الشحنة بنجاح</span>
+                    <span className="font-mono text-cyan-300 text-xs">(+{hardwareSim.weightKg.toFixed(2)} كجم)</span>
+                  </span>
+                  <p className="text-xs text-slate-300">
+                    تم استشعار استقرار الطرد على حساس الوزن الديناميكي. يرجى إغلاق وتأمين الصندوق.
+                  </p>
+                </div>
+
+                <button
+                  id="driver-secure-box-btn"
+                  onClick={handleSecureBox}
+                  disabled={isProcessing}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm sm:text-base transition-all shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Lock className="w-5 h-5" />
+                  <span>{isProcessing ? 'جاري إغلاق وتأمين الصندوق...' : '🔒 إغلاق وتأمين الصندوق'}</span>
+                </button>
+              </div>
             )}
 
             {currentOrder.status === 'SMART_BOX_SECURED' && (
-              <button
-                id="driver-complete-delivery-btn"
-                onClick={handleCompleteDelivery}
-                disabled={isProcessing}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm transition-all shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2"
-              >
-                <Camera className="w-4 h-4" />
-                <span>
-                  {isProcessing
-                    ? 'جاري التقاط التوثيق المرئي POD...'
-                    : 'التقاط صورة 2K POD وإتمام التسليم (COMPLETED)'}
-                </span>
-              </button>
+              <div className="pt-2 animate-in fade-in">
+                <button
+                  id="driver-complete-delivery-btn"
+                  onClick={handleCompleteDelivery}
+                  disabled={isProcessing}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm sm:text-base transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Camera className="w-5 h-5" />
+                  <span>
+                    {isProcessing
+                      ? 'جاري التقاط التوثيق المرئي POD...'
+                      : 'التقاط صورة 2K POD وإتمام التسليم (COMPLETED)'}
+                  </span>
+                </button>
+              </div>
             )}
           </div>
         </div>

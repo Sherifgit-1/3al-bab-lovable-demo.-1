@@ -80,6 +80,13 @@ export class MockNotificationService implements INotificationService {
     this.notifications.forEach((n) => (n.read = true));
     this.notifyListeners();
   }
+
+  removeNotificationsForOrders(orderIds: string[]): NotificationItem[] {
+    const idSet = new Set(orderIds);
+    this.notifications = this.notifications.filter((n) => !n.orderId || !idSet.has(n.orderId));
+    this.notifyListeners();
+    return [...this.notifications];
+  }
 }
 
 export const notificationService = new MockNotificationService();

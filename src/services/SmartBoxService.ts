@@ -42,6 +42,23 @@ export class MockSmartBoxService implements ISmartBoxService {
     return [...this.boxes];
   }
 
+  releaseCompartmentsForOrders(orderIds: string[]): SmartBox[] {
+    const idSet = new Set(orderIds);
+    this.boxes.forEach((box) => {
+      box.compartments.forEach((comp) => {
+        if (comp.currentOrderId && idSet.has(comp.currentOrderId)) {
+          comp.status = 'AVAILABLE';
+          comp.currentOrderId = undefined;
+          comp.currentWeightKg = 0;
+          comp.isSolenoidLocked = true;
+          comp.isDoorClosed = true;
+        }
+      });
+    });
+    this.notify();
+    return [...this.boxes];
+  }
+
   async getBox(boxId: string): Promise<SmartBox | undefined> {
     return this.boxes.find((b) => b.id === boxId);
   }

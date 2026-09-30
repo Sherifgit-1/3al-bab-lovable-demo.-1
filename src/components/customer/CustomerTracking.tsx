@@ -34,13 +34,36 @@ export const CustomerTracking: React.FC = () => {
     authorizations,
     cancelOrder,
     customerAuthorizeAccess,
+    customerRejectAccess,
   } = useApp();
 
   const [copiedOtp, setCopiedOtp] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelMessage, setCancelMessage] = useState<string | null>(null);
+  const [rejectNotice, setRejectNotice] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
 
-  const auth = authorizations.find((a) => a.orderId === activeOrder?.id && a.status === 'ACTIVE') || authorizations.find((a) => a.orderId === activeOrder?.id);
+  React.useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const auth =
+    authorizations.find((a) => a.orderId === activeOrder?.id && a.status === 'ACTIVE') ||
+    authorizations.find((a) => a.orderId === activeOrder?.id);
+
+  const isAccessActive =
+    auth?.status === 'ACTIVE' &&
+    ['ACCESS_AUTHORIZED', 'OTP_VALIDATED', 'SMART_BOX_OPENED', 'PACKAGE_DEPOSITED', 'SMART_BOX_SECURED', 'COMPLETED'].includes(
+      activeOrder?.status || ''
+    );
+
+  const remainingSeconds = auth?.expiresAtTimestamp
+    ? Math.max(0, Math.floor((auth.expiresAtTimestamp - nowMs) / 1000))
+    : 0;
+  const timerMinutes = Math.floor(remainingSeconds / 60);
+  const timerSecs = remainingSeconds % 60;
+  const formattedCountdown = `${timerMinutes}:${timerSecs < 10 ? '0' : ''}${timerSecs}`;
 
   const handleCopyOtp = () => {
     if (auth?.otp) {
@@ -320,43 +343,77 @@ export const CustomerTracking: React.FC = () => {
             </span>
           </div>
 
-          {/* Clean 6-digit OTP Display */}
+          {/* Secure Authorization Status Card */}
           <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center text-center space-y-2">
-            <span className="text-xs text-slate-400">رمز فتح الحجيرة للمندوب (OTP):</span>
-            <div className="flex items-center gap-3">
-              <span className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-cyan-400">
-                {auth?.otp || '------'}
-              </span>
-              {auth?.otp && (
-                <button
-                  onClick={handleCopyOtp}
-                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                  title="نسخ الرمز"
-                >
-                  {copiedOtp ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                </button>
+            <div className="flex items-center justify-between w-full text-xs text-slate-400">
+              <span>حالة تفويض الوصول للمندوب:</span>
+              {isAccessActive && remainingSeconds > 0 && (
+                <span className="font-mono text-xs text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800 font-bold flex items-center gap-1">
+                  <Clock className="w-3 h-3 animate-pulse" />
+                  متبقي {formattedCountdown}
+                </span>
+              )}
+            </div>
+
+            <div className="py-2 text-center">
+              {isAccessActive ? (
+                <div className="space-y-1">
+                  <span className="text-sm font-bold text-emerald-400 flex items-center justify-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    تم تفويض المندوب بفتح الصندوق بنجاح
+                  </span>
+                  <p className="text-[11px] text-slate-300">
+                    تم إرسال إشعار فوري مشفر للمندوب. سيقوم بالضغط على &quot;فتح الصندوق&quot; وإيداع شحنتك فوراً.
+                  </p>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500 font-medium">
+                  {activeOrder?.status === 'DRIVER_ARRIVED'
+                    ? 'المندوب بانتظار موافقتك الرسمية أدناه'
+                    : 'يتم تفعيل التصريح فقط بعد وصول المندوب للصندوق وموافقتك'}
+                </div>
               )}
             </div>
             <p className="text-[10px] text-slate-400">
-              {auth?.otp
-                ? 'رمز صالح لمرة واحدة لمدة 5 دقائق لفتح الحجيرة وتأمين الشحنة'
-                : 'يتم توليد الرمز تلقائياً فور وصول المندوب والموافقة على إذن الوصول'}
+              {isAccessActive
+                ? `تصريح رقمي مؤقت صالح لمدة 5 دقائق من لحظة إذنك (${auth?.expiresAt ? `ينتهي ${auth.expiresAt}` : '5 دقائق'})`
+                : 'حماية مؤتمتة: لا يمكن فتح الصندوق إلا بعد موافقتك الصريحة'}
             </p>
           </div>
 
-          {/* Customer Action at Driver Arrival */}
+          {/* Security Authorization Dialog at Driver Arrival */}
           {activeOrder?.status === 'DRIVER_ARRIVED' && (!auth || auth.status !== 'ACTIVE') && (
-            <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-800 text-center space-y-2">
-              <p className="text-xs text-amber-200 font-semibold">
-                المندوب وصل أمام الصندوق الذكي BOX-102. اضغط للموافقة وبدء مهلة الـ 5 دقائق.
+            <div className="p-4 rounded-xl bg-gradient-to-br from-amber-950/90 via-slate-900 to-amber-950/90 border-2 border-amber-500/80 text-center space-y-3 shadow-xl animate-in zoom-in-95">
+              <div className="flex items-center justify-center gap-2 text-amber-400">
+                <AlertTriangle className="w-5 h-5 animate-pulse text-amber-400" />
+                <h4 className="text-sm font-black text-white">المندوب وصل للصندوق — هل تسمح له بفتح صندوقك؟</h4>
+              </div>
+              <p className="text-[11px] text-slate-300">
+                المندوب أمام الصندوق الذكي {activeOrder.smartBoxId} الآن. بالضغط على &quot;السماح بفتح الصندوق&quot;، سيتم إصدار تصريح رقمي للمندوب صالح لمدة 5 دقائق.
               </p>
-              <button
-                onClick={() => customerAuthorizeAccess(activeOrder.id)}
-                className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
-              >
-                <KeyRound className="w-4 h-4" />
-                <span>إصدار تصريح دخول مؤقت للمندوب (5 دقائق)</span>
-              </button>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  id="customer-authorize-btn"
+                  onClick={() => customerAuthorizeAccess(activeOrder.id)}
+                  className="flex-1 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>السماح بفتح الصندوق</span>
+                </button>
+                <button
+                  id="customer-reject-btn"
+                  onClick={async () => {
+                    await customerRejectAccess(activeOrder.id);
+                    setRejectNotice('تم رفض السماح بفتح الصندوق');
+                  }}
+                  className="px-5 py-2.5 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  رفض
+                </button>
+              </div>
+              {rejectNotice && (
+                <div className="text-[10px] text-rose-400 font-bold pt-1">{rejectNotice}</div>
+              )}
             </div>
           )}
 

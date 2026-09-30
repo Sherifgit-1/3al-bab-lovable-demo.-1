@@ -25,7 +25,13 @@ import {
 } from 'lucide-react';
 
 export const CustomerMerchantList: React.FC = () => {
-  const { merchants, setSelectedMerchantProfileId, setCustomerView, openMerchantChat } = useApp();
+  const {
+    merchants,
+    setSelectedMerchantProfileId,
+    setSelectedMerchantId,
+    setCustomerView,
+    openMerchantChat,
+  } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
@@ -50,6 +56,7 @@ export const CustomerMerchantList: React.FC = () => {
 
   const handleSelectMerchant = (merchantId: string) => {
     setSelectedMerchantProfileId(merchantId);
+    setSelectedMerchantId(merchantId);
     setCustomerView('MERCHANT_PROFILE');
   };
 

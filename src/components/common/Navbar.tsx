@@ -48,6 +48,9 @@ export const Navbar: React.FC<{
     markNotificationRead,
     markAllNotificationsRead,
     hardwareSim,
+    openMerchantChat,
+    selectedMerchantId,
+    activeConversation,
   } = useApp();
 
   const {
@@ -185,7 +188,10 @@ export const Navbar: React.FC<{
                   <span>المتاجر</span>
                 </button>
                 <button
-                  onClick={() => setCustomerView('CHAT')}
+                  onClick={() => {
+                    const targetMerchId = selectedMerchantId || activeConversation?.merchantId || 'merch-5';
+                    openMerchantChat(targetMerchId);
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
                     customerView === 'CHAT'
                       ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'

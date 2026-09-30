@@ -93,7 +93,7 @@ export interface ValidateAccessParams {
   driverId: string;
   smartBoxId: string;
   compartmentId: string;
-  otp: string;
+  otp?: string;
   currentCoordinates?: { lat: number; lng: number };
 }
 

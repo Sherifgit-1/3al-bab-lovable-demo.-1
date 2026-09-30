@@ -118,7 +118,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [unauthorizedNotice, setUnauthorizedNotice] = useState<string | null>(null);
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = window.localStorage.getItem('tawseel_demo_mode');
+      if (stored !== null) return stored === 'true';
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('tawseel_demo_mode', String(isDemoMode));
+    }
+  }, [isDemoMode]);
 
   // Auto-dismiss unauthorized notice after 5 seconds
   useEffect(() => {

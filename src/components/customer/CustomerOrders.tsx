@@ -22,6 +22,9 @@ import {
   ArrowUpRight,
   ShieldCheck,
   MessageSquare,
+  Trash2,
+  RotateCcw,
+  X,
 } from 'lucide-react';
 
 export const CustomerOrders: React.FC = () => {
@@ -30,10 +33,31 @@ export const CustomerOrders: React.FC = () => {
     setActiveOrderId,
     setCustomerView,
     openMerchantChat,
+    cleanupUnfinishedDemoOrders,
   } = useApp();
-  const { currentUser } = useAuth();
+  const { currentUser, isDemoMode } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'CURRENT' | 'PAST'>('CURRENT');
+  const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanupFeedback, setCleanupFeedback] = useState<{ text: string; isSuccess: boolean } | null>(null);
+
+  const handleConfirmCleanup = async () => {
+    setIsCleaning(true);
+    try {
+      const res = await cleanupUnfinishedDemoOrders();
+      setShowCleanupConfirm(false);
+      setCleanupFeedback({
+        text: res.message,
+        isSuccess: res.success,
+      });
+      setTimeout(() => {
+        setCleanupFeedback(null);
+      }, 5000);
+    } finally {
+      setIsCleaning(false);
+    }
+  };
 
   // Customer ID is 'cust-1' or currentUser.id
   const currentCustomerId = currentUser?.id || 'cust-1';
@@ -163,6 +187,101 @@ export const CustomerOrders: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Clearly Visible Demo-only button directly below current/previous orders tabs and above order list */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/90 border border-slate-800 shadow-sm">
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          <span className="font-semibold text-slate-200">وضع التجربة (Demo):</span>
+          <span>إلغاء وإزالة الطلبات التجريبية العالقة وغير المكتملة</span>
+        </div>
+        <button
+          id="customer-orders-cleanup-btn"
+          type="button"
+          onClick={() => {
+            setCleanupFeedback(null);
+            setShowCleanupConfirm(true);
+          }}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-600/80 text-rose-200 hover:text-white font-bold text-xs sm:text-sm transition-all shadow-md shadow-rose-950/40 hover:shadow-rose-900/40 active:scale-[0.98] cursor-pointer shrink-0"
+          title="تنظيف الطلبات غير المكتملة"
+        >
+          <span>🗑️ تنظيف الطلبات غير المكتملة</span>
+        </button>
+      </div>
+
+      {/* Cleanup Result Feedback Banner */}
+      {cleanupFeedback && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center justify-between text-xs sm:text-sm font-semibold transition-all shadow-md ${
+            cleanupFeedback.isSuccess
+              ? 'bg-emerald-950/90 border-emerald-600/80 text-emerald-200'
+              : 'bg-cyan-950/90 border-cyan-700/80 text-cyan-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 whitespace-pre-line text-right">
+            {cleanupFeedback.isSuccess ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-cyan-400 shrink-0" />
+            )}
+            <span>{cleanupFeedback.text}</span>
+          </div>
+          <button
+            onClick={() => setCleanupFeedback(null)}
+            className="p-1 rounded hover:bg-black/20 text-slate-400 hover:text-white transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Demo Cleanup Confirmation Modal */}
+      {showCleanupConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-md w-full p-5 shadow-2xl text-right animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-950/80 border border-rose-700/80 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white font-['Cairo']">
+                  تنظيف الطلبات غير المكتملة
+                </h3>
+                <p className="text-xs text-rose-400/90 font-medium">إجراء خاص بوضع التجربة (Demo Only)</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800 text-slate-200 text-sm leading-relaxed mb-5 whitespace-pre-line font-medium text-right">
+              {`سيتم إلغاء وإزالة جميع الطلبات غير المكتملة.
+الطلبات المكتملة لن تتأثر.
+هل تريد المتابعة؟`}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowCleanupConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs sm:text-sm font-semibold transition-colors"
+              >
+                إلغاء
+              </button>
+              <button
+                id="confirm-cleanup-btn"
+                type="button"
+                onClick={handleConfirmCleanup}
+                disabled={isCleaning}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs sm:text-sm font-bold transition-all shadow-lg shadow-rose-900/30 disabled:opacity-50"
+              >
+                {isCleaning ? (
+                  <span>جاري التنظيف...</span>
+                ) : (
+                  <span>تنظيف الطلبات</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Orders List */}
       {displayedOrders.length === 0 ? (

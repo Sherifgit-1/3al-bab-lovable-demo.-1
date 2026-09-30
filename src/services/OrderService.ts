@@ -114,6 +114,22 @@ export class MockOrderService implements IOrderService {
     return [...this.orders];
   }
 
+  cleanupUnfinishedOrders(): { removedCount: number; removedOrderIds: string[]; remainingOrders: Order[] } {
+    const unfinished = this.orders.filter((o) => o.status !== 'COMPLETED');
+    const removedOrderIds = unfinished.map((o) => o.id);
+    unfinished.forEach((order) => {
+      order.status = 'CANCELLED';
+      order.updatedAt = new Date().toISOString();
+    });
+    this.orders = this.orders.filter((o) => o.status === 'COMPLETED');
+    this.notifyListeners();
+    return {
+      removedCount: unfinished.length,
+      removedOrderIds,
+      remainingOrders: [...this.orders],
+    };
+  }
+
   async getAllOrders(): Promise<Order[]> {
     return [...this.orders];
   }
@@ -594,13 +610,13 @@ export class MockOrderService implements IOrderService {
           if (target === 'ACCESS_AUTHORIZED') return { allowed: true };
         }
         if (current === 'ACCESS_AUTHORIZED') {
-          if (target === 'OTP_VALIDATED') return { allowed: true };
+          if (target === 'OTP_VALIDATED' || target === 'SMART_BOX_OPENED') return { allowed: true };
         }
         if (current === 'OTP_VALIDATED') {
           if (target === 'SMART_BOX_OPENED') return { allowed: true };
         }
         if (current === 'SMART_BOX_OPENED') {
-          if (target === 'PACKAGE_DEPOSITED') return { allowed: true };
+          if (target === 'PACKAGE_DEPOSITED' || target === 'SMART_BOX_SECURED') return { allowed: true };
         }
         if (current === 'PACKAGE_DEPOSITED') {
           if (target === 'SMART_BOX_SECURED') return { allowed: true };
@@ -792,9 +808,9 @@ export class MockOrderService implements IOrderService {
           orderId: order.id,
           smartBoxId: order.smartBoxId,
           compartmentId: order.compartmentId,
-          action: 'ACCESS_REQUESTED',
+          action: 'ACCESS_AUTHORIZED',
           result: 'SUCCESS',
-          details: `طلب المندوب إذن الدخول المؤقت وتم تفعيل صلاحية الفتح لمدة 5 دقائق`,
+          details: `وافق العميل على فتح الصندوق وتم اعتماد تصريح الوصول المؤقت بنجاح (نافذة 5 دقائق)`,
         });
         await notificationService.notify(
           'تم السماح بالوصول إلى الصندوق',
@@ -824,7 +840,7 @@ export class MockOrderService implements IOrderService {
           orderId: order.id,
           smartBoxId: order.smartBoxId,
           compartmentId: order.compartmentId,
-          action: 'SMART_BOX_UNLOCKED',
+          action: 'SMART_BOX_OPENED',
           result: 'SUCCESS',
           details: `تم فصل مزلاج السولينويد الكهرومغناطيسي وفتح باب الحجيرة ${order.compartmentId}`,
         });
@@ -862,7 +878,7 @@ export class MockOrderService implements IOrderService {
           orderId: order.id,
           smartBoxId: order.smartBoxId,
           compartmentId: order.compartmentId,
-          action: 'SMART_BOX_LOCKED',
+          action: 'SMART_BOX_SECURED',
           result: 'SUCCESS',
           details: `تم إغلاق الباب ميكانيكياً وإحكام قفل السولينويد وتأمين الحجيرة 100%`,
         });
@@ -881,7 +897,7 @@ export class MockOrderService implements IOrderService {
           orderId: order.id,
           smartBoxId: order.smartBoxId,
           compartmentId: order.compartmentId,
-          action: 'DELIVERY_COMPLETED',
+          action: 'COMPLETED',
           result: 'SUCCESS',
           details: `اكتملت دورة تسليم الطلب #${order.id} بالكامل وتم حفظ توثيق التسليم POD بسجل التدقيق الرقمي`,
         });

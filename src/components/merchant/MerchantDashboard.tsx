@@ -58,6 +58,10 @@ export const MerchantDashboard: React.FC = () => {
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('عدم توفر الصنف في المخزون حالياً');
 
+  const activeConvMessages = chatMessages.filter(
+    (m) => m.conversationId === activeConversation?.id
+  );
+
   // Filter orders by status
   const pendingOrders = orders.filter((o) => o.status === 'PENDING');
   const acceptedOrders = orders.filter((o) => o.status === 'ACCEPTED');
@@ -251,7 +255,7 @@ export const MerchantDashboard: React.FC = () => {
 
               {/* Messages Container */}
               <div className="p-4 space-y-3 overflow-y-auto max-h-[380px]">
-                {chatMessages.map((m) => {
+                {activeConvMessages.map((m) => {
                   const isMerchant = m.senderRole === 'MERCHANT';
                   const isDriver = m.senderRole === 'DRIVER';
                   const isSystem = m.senderRole === 'ADMIN' || m.messageType === 'SYSTEM';

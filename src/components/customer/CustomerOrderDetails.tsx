@@ -33,12 +33,14 @@ export const CustomerOrderDetails: React.FC = () => {
     setActiveOrderId,
     setCustomerView,
     openMerchantChat,
-    generateDeliveryOTP,
+    customerAuthorizeAccess,
+    customerRejectAccess,
     authorizations,
   } = useApp();
 
-  const [isGeneratingOTP, setIsGeneratingOTP] = useState<boolean>(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
+  const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
+  const [rejectNotice, setRejectNotice] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // If no activeOrder in state, fall back to TW-1001 or first order
   const order = activeOrder || orders.find((o) => o.id === 'TW-1001') || orders[0];
@@ -62,22 +64,26 @@ export const CustomerOrderDetails: React.FC = () => {
     (a) => a.orderId === order.id && a.status === 'ACTIVE'
   );
 
-  const bothConfirmed = Boolean(order.customerConfirmed && order.merchantConfirmed);
 
-  const handleGenerateOTP = async () => {
-    if (!bothConfirmed) return;
-    setIsGeneratingOTP(true);
-    setOtpError(null);
+  const handleCustomerAuthorize = async () => {
+    setIsAuthorizing(true);
+    setAuthError(null);
     try {
-      const res = await generateDeliveryOTP(order.id);
-      if (res && !res.success) {
-        setOtpError(res.message || 'فشل إصدار تصريح التوصيل');
-      }
+      await customerAuthorizeAccess(order.id);
     } catch (err: any) {
-      console.error('Error generating OTP in order details:', err);
-      setOtpError(err?.message || 'حدث خطأ أثناء إصدار رمز التوصيل');
+      console.error('Error authorizing access in order details:', err);
+      setAuthError(err?.message || 'فشل منح إذن الوصول');
     } finally {
-      setIsGeneratingOTP(false);
+      setIsAuthorizing(false);
+    }
+  };
+
+  const handleCustomerReject = async () => {
+    try {
+      await customerRejectAccess(order.id);
+      setRejectNotice('تم رفض السماح بفتح الصندوق');
+    } catch (err: any) {
+      setAuthError(err?.message || 'حدث خطأ أثناء رفض الطلب');
     }
   };
 
@@ -137,16 +143,31 @@ export const CustomerOrderDetails: React.FC = () => {
         </span>
       </div>
 
-      {/* Error alert if OTP generation fails */}
-      {otpError && (
+      {/* Feedback Alerts */}
+      {authError && (
         <div className="p-3.5 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{otpError}</span>
+            <span>{authError}</span>
           </div>
           <button
-            onClick={() => setOtpError(null)}
+            onClick={() => setAuthError(null)}
             className="text-rose-400 hover:text-rose-200 text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {rejectNotice && (
+        <div className="p-3.5 rounded-xl bg-amber-950/80 border border-amber-800 text-amber-200 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{rejectNotice}</span>
+          </div>
+          <button
+            onClick={() => setRejectNotice(null)}
+            className="text-amber-400 hover:text-amber-200 text-xs font-bold"
           >
             ✕
           </button>
@@ -325,44 +346,78 @@ export const CustomerOrderDetails: React.FC = () => {
           </div>
         )}
 
-        {/* Authorization Status / Generate OTP Card */}
+        {/* Security Access Authorization Card */}
         {activeAuth ? (
-          <div className="p-4 rounded-xl bg-cyan-950/40 border border-cyan-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-cyan-900/60 border border-cyan-700 flex items-center justify-center text-cyan-300 shrink-0">
-                <ShieldCheck className="w-5 h-5" />
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/40 border border-cyan-500/50 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-cyan-400" />
+                <span className="font-bold text-white text-sm">تم السماح بفتح الصندوق (تصريح نشط)</span>
               </div>
-              <div className="text-xs">
-                <span className="font-bold text-cyan-300 block">تم إصدار تصريح التوصيل (نشط)</span>
-                <span className="text-slate-300 text-[11px]">
-                  صلاحية 5 دقائق • مربوط بالمندوب {activeAuth.driverName} والحجيرة {activeAuth.compartmentId}
-                </span>
-              </div>
-            </div>
-            <span className="px-3 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold text-xs self-start sm:self-auto">
-              تصريح ساري ✓
-            </span>
-          </div>
-        ) : bothConfirmed && order.status !== 'COMPLETED' ? (
-          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-900 border border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="text-xs space-y-0.5">
-              <span className="font-bold text-amber-300 block">
-                الطرفان أكدا الطلب بنجاح!
-              </span>
-              <span className="text-slate-400 text-[11px]">
-                يمكنك الآن إصدار تصريح التوصيل ورمز OTP للمندوب لفتح الحجيرة الذكية (صالح لمدة 5 دقائق).
+              <span className="text-[10px] text-emerald-300 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800 font-bold">
+                ساري المفعول (5 دقائق)
               </span>
             </div>
 
-            <button
-              id="btn-details-generate-otp"
-              onClick={handleGenerateOTP}
-              disabled={isGeneratingOTP}
-              className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
-            >
-              <KeyRound className="w-4 h-4 text-slate-950" />
-              <span>{isGeneratingOTP ? 'جارٍ الإصدار...' : 'إصدار OTP للتوصيل'}</span>
-            </button>
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-right">
+              <div>
+                <span className="text-xs text-slate-400 block">رمز فتح الحجيرة للمندوب (OTP):</span>
+                <span className="text-[11px] text-slate-500">مخصص لمرة واحدة فقط لفتح الحجيرة {activeAuth.compartmentId || '01'}</span>
+              </div>
+              <span className="font-mono text-3xl font-black tracking-widest text-cyan-400">
+                {activeAuth.otp}
+              </span>
+            </div>
+
+            <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2 pt-1">
+              <span>المندوب المعتمد: <strong className="text-white">{activeAuth.driverName || 'إسلام عامر'}</strong></span>
+              <span>الصندوق: <strong className="font-mono text-amber-300">{activeAuth.smartBoxId}</strong></span>
+              <span>الحجيرة: <strong className="font-mono text-cyan-300">{activeAuth.compartmentId}</strong></span>
+              <span>الصلاحية: <strong className="text-amber-300">5 دقائق من وقت الإذن</strong></span>
+            </div>
+          </div>
+        ) : order.status === 'DRIVER_ARRIVED' ? (
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-950/90 via-slate-900 to-amber-950/90 border-2 border-amber-500/80 space-y-3.5 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="w-5 h-5 text-amber-400 animate-pulse shrink-0" />
+              <h4 className="text-sm sm:text-base font-black text-white">
+                المندوب وصل للصندوق — هل تسمح له بفتح صندوقك؟
+              </h4>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              المندوب أمام الصندوق الذكي {order.smartBoxId || 'BOX-102'} الآن. بالضغط على &quot;السماح بفتح الصندوق&quot;، سيتم إصدار تصريح رقمي للمندوب صالح لمدة 5 دقائق لفتح الحجيرة {order.compartmentId || '01'}.
+            </p>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                id="btn-details-authorize-access"
+                onClick={handleCustomerAuthorize}
+                disabled={isAuthorizing}
+                className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{isAuthorizing ? 'جارٍ الاعتماد وإصدار التصريح...' : 'السماح بفتح الصندوق'}</span>
+              </button>
+              <button
+                id="btn-details-reject-access"
+                onClick={handleCustomerReject}
+                className="px-6 py-3 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+              >
+                رفض
+              </button>
+            </div>
+          </div>
+        ) : order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && order.status !== 'REJECTED' ? (
+          <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 text-slate-400">
+              <Clock className="w-4 h-4 text-cyan-400" />
+              <span>إذن الوصول للصندوق:</span>
+              <span className="text-slate-300">
+                {order.status === 'OUT_FOR_DELIVERY' || order.status === 'PICKED_UP' || order.status === 'ASSIGNED_TO_DRIVER'
+                  ? 'سيصلك تنبيه أمني للسماح بالفتح فور وصول المندوب للصندوق الذكي'
+                  : 'الطلب قيد التجهيز من قبل المتجر'}
+              </span>
+            </div>
+            <span className="text-[10px] text-cyan-400 font-mono">حماية مؤتمتة</span>
           </div>
         ) : null}
 

@@ -52,6 +52,13 @@ export class MockAuthorizationService implements IAuthorizationService {
     return [...this.authorizations];
   }
 
+  removeAuthorizationsForOrders(orderIds: string[]): TemporaryAccessAuthorization[] {
+    const idSet = new Set(orderIds);
+    this.authorizations = this.authorizations.filter((a) => !idSet.has(a.orderId));
+    this.notify();
+    return [...this.authorizations];
+  }
+
   async createAuthorization(params: {
     customerId: string;
     customerName: string;
@@ -374,8 +381,8 @@ export class MockAuthorizationService implements IAuthorizationService {
       return { granted: false, reason: 'انتهت صلاحية هذا الرمز (تجاوز نافذة الـ 5 دقائق الأمنية).', errorCode: 'EXPIRED' };
     }
 
-    // 9. OTP is correct
-    if (auth.otp !== params.otp.trim()) {
+    // 9. If OTP is provided, verify OTP is correct
+    if (params.otp && auth.otp !== params.otp.trim()) {
       // NEVER log the raw OTP value in audit logs
       await auditService.recordEvent({
         actor: auth.driverName || params.driverId,
@@ -403,7 +410,7 @@ export class MockAuthorizationService implements IAuthorizationService {
       return { granted: false, reason: 'رمز OTP المدخل غير صحيح.', errorCode: 'INVALID_OTP' };
     }
 
-    // 10. Single-use OTP: Verify OTP has not already been consumed
+    // 10. Single-use: Verify authorization has not already been consumed
     if (auth.isOtpConsumed) {
       await auditService.recordEvent({
         actor: auth.driverName || params.driverId,
@@ -413,25 +420,24 @@ export class MockAuthorizationService implements IAuthorizationService {
         compartmentId: params.compartmentId,
         action: 'ACCESS_DENIED',
         result: 'FAILURE',
-        details: 'محاولة إعادة استخدام رمز OTP مستهلك مسبقاً (Replay Attack Prevention)',
+        details: 'محاولة إعادة استخدام تصريح مستهلك مسبقاً (Replay Attack Prevention)',
       });
 
       return {
         granted: false,
-        reason: 'تم استخدام رمز OTP هذا مسبقاً ولا يمكن إعادة استخدامه (رمز للاستخدام لمرة واحدة فقط).',
+        reason: 'تم استخدام هذا التصريح مسبقاً ولا يمكن إعادة استخدامه (تصريح للاستخدام لمرة واحدة فقط).',
         errorCode: 'INVALID_OTP',
       };
     }
 
-    // All 10 checks passed! Mark OTP consumed and validated; update status to USED as required
+    // All checks passed! Mark authorization validated.
+    // Authorization remains ACTIVE until completeAccess marks it USED upon delivery completion.
     auth.isOtpConsumed = true;
     auth.otpValidated = true;
-    auth.status = 'USED';
-    auth.usedAt = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-    auth.otpValidatedAt = auth.usedAt;
+    auth.otpValidatedAt = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
     this.notify();
 
-    // NEVER log raw OTP in audit log
+    // Audit event without exposing plaintext secrets
     await auditService.recordEvent({
       actor: auth.driverName || params.driverId,
       actorRole: 'DRIVER',
@@ -440,7 +446,7 @@ export class MockAuthorizationService implements IAuthorizationService {
       compartmentId: params.compartmentId,
       action: 'OTP_VALIDATED',
       result: 'SUCCESS',
-      details: 'تم التحقق من رمز OTP بنجاح واستيفاء كافة الشروط الأمنية',
+      details: 'تم التحقق من التصريح الرقمي للمندوب بنجاح واستيفاء كافة الشروط الأمنية',
     });
 
     return {
@@ -481,13 +487,13 @@ export class MockAuthorizationService implements IAuthorizationService {
       (a) => a.orderId === orderId && a.smartBoxId === boxId && a.compartmentId === compartmentId
     );
     if (!auth) return false;
-    if (auth.status === 'REVOKED' || auth.status === 'EXPIRED') return false;
+    if (auth.status === 'REVOKED' || auth.status === 'EXPIRED' || auth.status === 'USED') return false;
     if (auth.expiresAtTimestamp && Date.now() > auth.expiresAtTimestamp) {
       auth.status = 'EXPIRED';
       this.notify();
       return false;
     }
-    return auth.otpValidated === true;
+    return auth.status === 'ACTIVE' || auth.otpValidated === true;
   }
 
   async revokeAuthorization(authId: string, reason: string): Promise<boolean> {

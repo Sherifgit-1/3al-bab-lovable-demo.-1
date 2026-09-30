@@ -28,6 +28,7 @@ export const CustomerCheckout: React.FC = () => {
     boxes,
     cart,
     merchants,
+    products,
     selectedMerchantId,
   } = useApp();
 
@@ -42,8 +43,9 @@ export const CustomerCheckout: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const merchant = merchants.find((m) => m.id === selectedMerchantId) || merchants[0];
+  const merchantProducts = products.filter((p) => p.merchantId === merchant.id);
 
-  // If cart is not empty, use cart items; otherwise use default fallback items
+  // If cart is not empty, use cart items; otherwise use merchant's own products
   const items =
     cart.length > 0
       ? cart.map((i) => ({
@@ -53,20 +55,21 @@ export const CustomerCheckout: React.FC = () => {
           quantity: i.quantity,
           price: i.product.price,
         }))
+      : merchantProducts.length > 0
+      ? merchantProducts.slice(0, 2).map((p) => ({
+          id: p.id,
+          name: p.name,
+          specs: p.specs || p.category,
+          quantity: 1,
+          price: p.price,
+        }))
       : [
           {
-            id: 'i1',
-            name: 'شاحن أنكر نانو 65W GaN فائق السرعة',
-            specs: 'اللون: أسود داكن • أصلي 100%',
+            id: `item-${merchant.id}-1`,
+            name: `طلب معتمد من ${merchant.businessName || merchant.name}`,
+            specs: merchant.category,
             quantity: 1,
-            price: 850,
-          },
-          {
-            id: 'i2',
-            name: 'سماعة بلوتوث Soundcore اللاسلكية',
-            specs: 'عزل ضوضاء فعال ANC • بطارية 32 ساعة',
-            quantity: 1,
-            price: 580,
+            price: 150,
           },
         ];
 

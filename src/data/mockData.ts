@@ -146,6 +146,63 @@ export const INITIAL_PRODUCTS: Product[] = [
     description: 'سويت شيرت هودي مريح ببطانة دافئة وجيب أمامي وخياطة مزدوجة متينة.',
     inStock: true,
   },
+
+  // merch-5: Al-Reem Shawarma (Restaurant)
+  {
+    id: 'prod-501',
+    merchantId: 'merch-5',
+    name: 'شاورما لحم سوري سوبر كول سلو',
+    category: 'شاورما وساندوتشات',
+    price: 120,
+    specs: 'خبز صاج سوري طازج • لحم بلدي متبل • صوص طحينة خاص',
+    compartmentSize: 'S',
+    description: 'ساندوتش شاورما لحم عالي الجودة مع خيار مخلل وصوص طحينة فاخر.',
+    inStock: true,
+  },
+  {
+    id: 'prod-502',
+    merchantId: 'merch-5',
+    name: 'شاورما دجاج مكسيكي كول سلو',
+    category: 'شاورما وساندوتشات',
+    price: 95,
+    specs: 'قطع صدور دجاج مشوية مع خلطة شاورما الريم الخاصة وثومية',
+    compartmentSize: 'S',
+    description: 'شاورما دجاج مميزة مع صوص الثومية والمخلل السوري المقرمش.',
+    inStock: true,
+  },
+  {
+    id: 'prod-503',
+    merchantId: 'merch-5',
+    name: 'بطاطس مقلية فارم فريتس مقرمشة',
+    category: 'مقبلات وجوانب',
+    price: 45,
+    specs: 'حجم عائلي كبير • بهارات بطاطس سورية خاصة',
+    compartmentSize: 'S',
+    description: 'أصابع بطاطس ذهبية مقرمشة تقدم ساخنة مع صوص الكاتشب والمايونيز.',
+    inStock: true,
+  },
+  {
+    id: 'prod-504',
+    merchantId: 'merch-5',
+    name: 'سلطة كول سلو طازجة بريميوم',
+    category: 'مقبلات وجوانب',
+    price: 35,
+    specs: 'كرنب طازج وجزر مبشور مع دريسنج كريمي مميز',
+    compartmentSize: 'S',
+    description: 'سلطة كول سلو باردة وطازجة ومحضرة يومياً.',
+    inStock: true,
+  },
+  {
+    id: 'prod-505',
+    merchantId: 'merch-5',
+    name: 'وجبة شاورما عربي دبل كومبو',
+    category: 'وجبات عائلية',
+    price: 195,
+    specs: 'ساندوتشين مقطعين قطع عائلية + بطاطس + ثومية ومخلل',
+    compartmentSize: 'M',
+    description: 'وجبة الشاورما العربي المتكاملة المحبوبة لدى الجميع.',
+    inStock: true,
+  },
 ];
 
 export const INITIAL_SMART_BOXES: SmartBox[] = [
@@ -1016,7 +1073,7 @@ export const INITIAL_NOTIFICATIONS: NotificationItem[] = [
 
 export const INITIAL_CONVERSATIONS: Conversation[] = [
   {
-    id: 'conv-1001',
+    id: 'conv-cust-1-merch-5-TW-1001',
     customerId: 'cust-1',
     customerName: 'أحمد مصطفى (Demo Customer)',
     merchantId: 'merch-5',
@@ -1027,7 +1084,18 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
     lastMessageAt: '10:03 ص',
   },
   {
-    id: 'conv-8921',
+    id: 'conv-cust-1-merch-2-general',
+    customerId: 'cust-1',
+    customerName: 'أحمد مصطفى',
+    merchantId: 'merch-2',
+    merchantName: 'صيدليات النور الرقمية',
+    orderId: undefined,
+    createdAt: '09:15 ص',
+    lastMessage: 'مرحباً دكتور، أحتاج فيتامين C فوار وجهاز قياس الضغط',
+    lastMessageAt: '09:20 ص',
+  },
+  {
+    id: 'conv-cust-1-merch-1-TW-8921',
     customerId: 'cust-1',
     customerName: 'أحمد مصطفى',
     merchantId: 'merch-1',
@@ -1040,9 +1108,10 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
 ];
 
 export const INITIAL_MESSAGES: ChatMessage[] = [
+  // Restaurant A (merch-5, TW-1001) - Shawarma & Food orders
   {
     id: 'msg-1',
-    conversationId: 'conv-1001',
+    conversationId: 'conv-cust-1-merch-5-TW-1001',
     senderId: 'cust-1',
     senderRole: 'CUSTOMER',
     messageType: 'TEXT',
@@ -1053,7 +1122,7 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
   },
   {
     id: 'msg-2',
-    conversationId: 'conv-1001',
+    conversationId: 'conv-cust-1-merch-5-TW-1001',
     senderId: 'merch-5',
     senderRole: 'MERCHANT',
     messageType: 'TEXT',
@@ -1064,7 +1133,7 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
   },
   {
     id: 'msg-3',
-    conversationId: 'conv-1001',
+    conversationId: 'conv-cust-1-merch-5-TW-1001',
     senderId: 'cust-1',
     senderRole: 'CUSTOMER',
     messageType: 'TEXT',
@@ -1072,5 +1141,60 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
     timestamp: '10:03 ص',
     read: true,
     orderId: 'TW-1001',
+  },
+  // Pharmacy B (merch-2) - Independent Medical & Health supplies conversation
+  {
+    id: 'msg-pharm-1',
+    conversationId: 'conv-cust-1-merch-2-general',
+    senderId: 'cust-1',
+    senderRole: 'CUSTOMER',
+    messageType: 'TEXT',
+    text: 'مرحباً دكتور سامح، أحتاج فيتامين C فوار وجهاز قياس ضغط الدم والتوصيل للصندوق الذكي BOX-102',
+    timestamp: '09:16 ص',
+    read: true,
+  },
+  {
+    id: 'msg-pharm-2',
+    conversationId: 'conv-cust-1-merch-2-general',
+    senderId: 'merch-2',
+    senderRole: 'MERCHANT',
+    messageType: 'TEXT',
+    text: 'أهلاً بك يا فندم! متوفر جهاز قياس الضغط الرقمي الأوتوماتيكي بضمان سنتين وأقراص فيتامين C + زنك الفوارة. جاهزون للتجهيز فور اعتمادك.',
+    timestamp: '09:18 ص',
+    read: true,
+  },
+  // Middle East Tech (merch-1, TW-8921) - Electronics conversation
+  {
+    id: 'msg-8921-1',
+    conversationId: 'conv-cust-1-merch-1-TW-8921',
+    senderId: 'cust-1',
+    senderRole: 'CUSTOMER',
+    messageType: 'TEXT',
+    text: 'مرحباً، هل متوفر شاحن أنكر 65W وسماعة ساوند كور؟',
+    timestamp: '09:31 ص',
+    read: true,
+    orderId: 'TW-8921',
+  },
+  {
+    id: 'msg-8921-2',
+    conversationId: 'conv-cust-1-merch-1-TW-8921',
+    senderId: 'merch-1',
+    senderRole: 'MERCHANT',
+    messageType: 'TEXT',
+    text: 'أهلاً بك يا فندم! نعم متوفرين وأصليين مع ضمان سنتين.',
+    timestamp: '09:32 ص',
+    read: true,
+    orderId: 'TW-8921',
+  },
+  {
+    id: 'msg-8921-3',
+    conversationId: 'conv-cust-1-merch-1-TW-8921',
+    senderId: 'cust-1',
+    senderRole: 'CUSTOMER',
+    messageType: 'TEXT',
+    text: 'ممتاز، أرغب بالتوصيل المباشر للصندوق الذكي BOX-102.',
+    timestamp: '09:35 ص',
+    read: true,
+    orderId: 'TW-8921',
   },
 ];
