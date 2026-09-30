@@ -162,7 +162,19 @@ export interface IAuditService {
  * Real-time User and Stakeholder Notification Service
  */
 export interface INotificationService {
-  notify(title: string, message: string, type: 'ORDER' | 'SECURITY' | 'DELIVERY' | 'SYSTEM', metadata?: { orderId?: string; smartBoxId?: string }): Promise<void>;
+  notify(
+    title: string,
+    message: string,
+    type: 'ORDER' | 'SECURITY' | 'DELIVERY' | 'SYSTEM',
+    metadata?: {
+      orderId?: string;
+      smartBoxId?: string;
+      driverId?: string;
+      customerId?: string;
+      compartmentId?: string;
+      targetRole?: 'CUSTOMER' | 'DRIVER' | 'MERCHANT' | 'ADMIN';
+    }
+  ): Promise<void>;
   getNotifications(): Promise<any[]>;
   markAsRead(id: string): Promise<void>;
 }

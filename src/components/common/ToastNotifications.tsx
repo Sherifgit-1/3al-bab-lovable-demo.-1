@@ -7,6 +7,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, AlertTriangle, Truck, CheckCircle2, Bell, ShieldAlert } from 'lucide-react';
 import { NotificationItem } from '../../types';
 import { notificationService } from '../../services/NotificationService';
+import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface ToastItem extends NotificationItem {
   isCritical: boolean;
@@ -35,6 +37,8 @@ const isSecurityCritical = (notif: NotificationItem): boolean => {
 };
 
 export const ToastNotifications: React.FC = () => {
+  const { role } = useApp();
+  const { currentUser } = useAuth();
   const [visibleToasts, setVisibleToasts] = useState<ToastItem[]>([]);
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const dismissedIdsRef = useRef<Set<string>>(new Set());
@@ -54,6 +58,17 @@ export const ToastNotifications: React.FC = () => {
   const addToast = (notif: NotificationItem) => {
     if (!notif || !notif.id) return;
     if (dismissedIdsRef.current.has(notif.id)) return;
+
+    // Filter out notifications targeted to a specific role/driver
+    if (notif.targetRole && notif.targetRole !== role) {
+      return;
+    }
+    if (notif.driverId && role === 'DRIVER' && currentUser?.id && notif.driverId !== currentUser.id) {
+      return;
+    }
+    if (notif.customerId && role === 'CUSTOMER' && currentUser?.id && notif.customerId !== currentUser.id) {
+      return;
+    }
 
     const isCritical = isSecurityCritical(notif);
 

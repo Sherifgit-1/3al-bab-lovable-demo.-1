@@ -48,7 +48,14 @@ export class MockNotificationService implements INotificationService {
     title: string,
     message: string,
     type: 'ORDER' | 'SECURITY' | 'DELIVERY' | 'SYSTEM',
-    metadata?: { orderId?: string; smartBoxId?: string }
+    metadata?: {
+      orderId?: string;
+      smartBoxId?: string;
+      driverId?: string;
+      customerId?: string;
+      compartmentId?: string;
+      targetRole?: 'CUSTOMER' | 'DRIVER' | 'MERCHANT' | 'ADMIN';
+    }
   ): Promise<void> {
     const item: NotificationItem = {
       id: `notif-${Date.now()}`,
@@ -59,6 +66,10 @@ export class MockNotificationService implements INotificationService {
       type,
       orderId: metadata?.orderId,
       smartBoxId: metadata?.smartBoxId,
+      driverId: metadata?.driverId,
+      customerId: metadata?.customerId,
+      compartmentId: metadata?.compartmentId,
+      targetRole: metadata?.targetRole,
     };
     this.notifications.unshift(item);
     this.notifyListeners();

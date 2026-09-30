@@ -28,7 +28,7 @@ import {
 
 export const CustomerOrderDetails: React.FC = () => {
   const {
-    activeOrder,
+    activeOrderId,
     orders,
     setActiveOrderId,
     setCustomerView,
@@ -42,19 +42,29 @@ export const CustomerOrderDetails: React.FC = () => {
   const [rejectNotice, setRejectNotice] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // If no activeOrder in state, fall back to TW-1001 or first order
-  const order = activeOrder || orders.find((o) => o.id === 'TW-1001') || orders[0];
+  // Resolve the order strictly from the selected order in navigation/state (activeOrderId).
+  // If no selected order exists or order is not found, display a clear empty state.
+  // Never fallback to TW-1001 or any unrelated old order.
+  const order = activeOrderId ? orders.find((o) => o.id === activeOrderId) || null : null;
 
   if (!order) {
     return (
-      <div className="p-8 text-center rounded-2xl bg-slate-900 border border-slate-800 text-slate-300 space-y-4">
-        <p>لا يوجد طلب محدد</p>
-        <button
-          onClick={() => setCustomerView('ORDERS')}
-          className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs"
-        >
-          العودة لطلباتي
-        </button>
+      <div className="max-w-xl mx-auto my-12 p-8 text-center rounded-3xl bg-slate-900/90 border border-slate-800 text-slate-300 space-y-4 shadow-xl">
+        <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-800 flex items-center justify-center text-slate-400">
+          <Package className="w-7 h-7" />
+        </div>
+        <h3 className="text-lg font-bold text-white font-['Cairo']">لا يوجد طلب محدد حالياً</h3>
+        <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+          لم يتم تحديد طلب لعرض تفاصيله، أو قد يكون الطلب تم إلغاؤه أو إزالته. يمكنك تصفح طلباتك واختيار أي طلب لعرض تفاصيله الكاملة.
+        </p>
+        <div className="pt-2">
+          <button
+            onClick={() => setCustomerView('ORDERS')}
+            className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-md cursor-pointer"
+          >
+            العودة إلى طلباتي
+          </button>
+        </div>
       </div>
     );
   }

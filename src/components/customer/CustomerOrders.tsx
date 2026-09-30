@@ -62,12 +62,11 @@ export const CustomerOrders: React.FC = () => {
   // Customer ID is 'cust-1' or currentUser.id
   const currentCustomerId = currentUser?.id || 'cust-1';
 
-  // Get all orders belonging to this customer, ensuring TW-1001 is included
+  // Get all orders belonging to this customer
   const customerOrders = orders.filter((o) => {
     return (
       o.customerId === currentCustomerId ||
       o.customerId === 'cust-1' ||
-      o.id === 'TW-1001' ||
       !o.customerId
     );
   });

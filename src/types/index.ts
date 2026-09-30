@@ -342,6 +342,10 @@ export interface NotificationItem {
   type: 'ORDER' | 'SECURITY' | 'DELIVERY' | 'SYSTEM';
   orderId?: string;
   smartBoxId?: string;
+  driverId?: string;
+  customerId?: string;
+  compartmentId?: string;
+  targetRole?: 'CUSTOMER' | 'DRIVER' | 'MERCHANT' | 'ADMIN';
 }
 
 export interface Product {

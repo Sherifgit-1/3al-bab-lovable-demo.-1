@@ -1179,12 +1179,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     await refreshOrdersFromService();
 
+    // Associate notification with exact assigned Driver ID, Order ID, Customer ID, Smart Box ID, and Compartment ID
+    const assignedDriverId = ord.driverId || 'drv-1';
+    const customerId = ord.customerId || 'cust-1';
+    const smartBoxId = ord.smartBoxId || 'BOX-102';
+    const compartmentId = ord.compartmentId || '01';
+
     // In-App Push Notification for assigned driver simulation
     await notificationService.notify(
       '🔐 تصريح فتح الصندوق',
-      'العميل سمح لك بفتح Smart Box. التصريح صالح لمدة 5 دقائق.',
+      `العميل سمح لك بفتح Smart Box (${smartBoxId} - حجيرة ${compartmentId}) للطلب #${orderId}. التصريح صالح لمدة 5 دقائق.`,
       'SECURITY',
-      { orderId, smartBoxId: ord.smartBoxId }
+      {
+        orderId,
+        smartBoxId,
+        compartmentId,
+        driverId: assignedDriverId,
+        customerId,
+        targetRole: 'DRIVER',
+      }
     );
     setNotifications([...notificationService.getNotificationsSync()]);
 

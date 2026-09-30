@@ -31,6 +31,7 @@ import {
   FileText,
   Camera,
 } from 'lucide-react';
+import { getQuickRepliesForMerchant } from '../../utils/quickReplies';
 
 export const MerchantDashboard: React.FC = () => {
   const {
@@ -53,6 +54,11 @@ export const MerchantDashboard: React.FC = () => {
   } = useApp();
 
   const currentMerchant = merchants[0]; // Middle East Tech
+  const convMerchant =
+    merchants.find((m) => m.id === activeConversation?.merchantId) ||
+    currentMerchant;
+  const merchantQuickReplies = getQuickRepliesForMerchant(convMerchant);
+
   const [dashboardTab, setDashboardTab] = useState<'PIPELINE' | 'CHATS'>('PIPELINE');
   const [merchantReplyText, setMerchantReplyText] = useState('');
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
@@ -335,18 +341,15 @@ export const MerchantDashboard: React.FC = () => {
               <div className="p-3 bg-slate-950 border-t border-slate-800 space-y-2">
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 text-[11px]">
                   <span className="text-slate-400 shrink-0">ردود سريعة:</span>
-                  <button
-                    onClick={() => sendMerchantReply('البطاطس خلصت، ممكن نستبدلها بكول سلو؟')}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 transition-colors"
-                  >
-                    استبدال البطاطس بالكول سلو
-                  </button>
-                  <button
-                    onClick={() => sendMerchantReply('تم تحضير وتغليف الطلب وجاري تسليمه للمندوب.')}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 transition-colors"
-                  >
-                    تم تحضير الطلب وتسليمه
-                  </button>
+                  {merchantQuickReplies.map((reply, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => sendMerchantReply(reply)}
+                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 transition-colors cursor-pointer"
+                    >
+                      {reply}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="flex items-center gap-2">

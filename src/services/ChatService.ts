@@ -24,9 +24,14 @@ export class MockChatService {
     const storedConvs = loadFromStorage<Conversation[] | null>(DEMO_STORAGE_KEYS.CONVERSATIONS, null);
     if (storedConvs && Array.isArray(storedConvs) && storedConvs.length > 0) {
       const convMap = new Map<string, Conversation>();
-      // 1. Ensure initial demo conversations exist
+      // 1. Ensure initial demo conversations exist and are seeded
       for (const init of INITIAL_CONVERSATIONS) {
         convMap.set(init.id, init);
+        const existingMsgs = loadFromStorage<ChatMessage[] | null>(getChatStorageKey(init.id), null);
+        if (!existingMsgs || existingMsgs.length === 0) {
+          const msgs = INITIAL_MESSAGES.filter((m) => m.conversationId === init.id);
+          saveToStorage(getChatStorageKey(init.id), msgs);
+        }
       }
       // 2. Add stored conversations, migrating any legacy conv-1001 to Restaurant A
       for (const c of storedConvs) {
@@ -99,9 +104,13 @@ export class MockChatService {
     const seedTechMsgs = INITIAL_MESSAGES.filter(
       (m) => m.conversationId === 'conv-cust-1-merch-1-TW-8921'
     );
+    const seedFashionMsgs = INITIAL_MESSAGES.filter(
+      (m) => m.conversationId === 'conv-cust-1-merch-4-fashion'
+    );
     saveToStorage(getChatStorageKey('conv-cust-1-merch-5-TW-1001'), seedRestMsgs);
     saveToStorage(getChatStorageKey('conv-cust-1-merch-2-general'), seedPharmMsgs);
     saveToStorage(getChatStorageKey('conv-cust-1-merch-1-TW-8921'), seedTechMsgs);
+    saveToStorage(getChatStorageKey('conv-cust-1-merch-4-fashion'), seedFashionMsgs);
     this.notify();
     return {
       conversations: [...this.conversations],

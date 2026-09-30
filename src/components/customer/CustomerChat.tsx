@@ -24,6 +24,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { MessageType } from '../../types';
+import { getQuickRepliesForMerchant } from '../../utils/quickReplies';
 
 export const CustomerChat: React.FC = () => {
   const {
@@ -135,11 +136,21 @@ export const CustomerChat: React.FC = () => {
     merchant.category.includes('مؤن') ||
     merchant.id === 'merch-3';
 
+  const isClothing =
+    merchant.category.includes('أزياء') ||
+    merchant.category.includes('ملابس') ||
+    merchant.category.includes('موضة') ||
+    merchant.id === 'merch-4';
+
+  const quickReplies = getQuickRepliesForMerchant(merchant);
+
   // Dynamic context-aware presets
   const quickCustomerPresetLabel = isRestaurant
     ? '🍔 طلب وجبة شاورما وبطاطس'
     : isPharmacy
     ? '💊 طلب مستلزمات طبية وفيتامينات'
+    : isClothing
+    ? '👗 استفسار عن مقاس وتوفر أزياء'
     : isElectronics
     ? '⚡ طلب شاحن وسماعة بلوتوث'
     : isSupermarket
@@ -150,6 +161,8 @@ export const CustomerChat: React.FC = () => {
     ? 'عايز 2 شاورما وواحد بطاطس والتوصيل للصندوق الذكي BOX-102'
     : isPharmacy
     ? 'مرحباً دكتور، أحتاج فيتامين C فوار وجهاز قياس الضغط والتوصيل للصندوق الذكي BOX-102'
+    : isClothing
+    ? 'مرحباً، هل المقاس واللون متوفران في المتجر والتوصيل للصندوق الذكي BOX-102؟'
     : isElectronics
     ? 'مرحباً، هل متوفر شاحن أنكر 65W وسماعة ساوند كور والتوصيل للصندوق الذكي BOX-102؟'
     : isSupermarket
@@ -162,6 +175,8 @@ export const CustomerChat: React.FC = () => {
     ? '📝 طلب مكتوب بخط اليد:\n- 2 شاورما لحم سوري سوبر\n- 1 بطاطس مقلية كريسبي\n- التوصيل إلى الصندوق الذكي BOX-102 (حجيرة 01)'
     : isPharmacy
     ? '📝 روشتة طبية بخط اليد:\n- فيتامين C + زنك أقراص فوارة\n- جهاز قياس ضغط الدم الرقمي الأوتوماتيكي\n- حقيبة إسعافات أولية منزلية\n- التوصيل إلى الصندوق الذكي BOX-102 (حجيرة 01)'
+    : isClothing
+    ? '📝 قائمة مقاسات وموديلات:\n- قميص أكسفورد كاجوال كحلي مقاس L\n- بنطلون تشينو بيج مقاس 34\n- التوصيل إلى الصندوق الذكي BOX-102'
     : isElectronics
     ? '📝 قائمة مستلزمات تقنية:\n- شاحن أنكر نانو 65W GaN\n- كابل تايب سي مجدول 2م\n- سماعة Soundcore بلوتوث\n- التوصيل إلى الصندوق الذكي BOX-102'
     : isSupermarket
@@ -178,6 +193,8 @@ export const CustomerChat: React.FC = () => {
     ? '🏪 رد المطعم: استبدال بالكول سلو'
     : isPharmacy
     ? '🏥 رد الصيدلية: توفر الأدوية والتعقيم'
+    : isClothing
+    ? '👗 رد المتجر: تأكيد توفر المقاس'
     : isElectronics
     ? '🔌 رد المتجر: الضمان والجاهزية'
     : isSupermarket
@@ -188,6 +205,8 @@ export const CustomerChat: React.FC = () => {
     ? 'أهلاً بك يا فندم! البطاطس خلصت، ممكن نستبدلها بكول سلو إضافي؟'
     : isPharmacy
     ? 'أهلاً بك يا فندم! الأدوية والمستلزمات الطبية متوفرة وجاهزة، وتم تعقيم العبوة بالكامل قبل الإيداع بالصندوق.'
+    : isClothing
+    ? 'أهلاً بك يا فندم! المقاس المطلوب واللون متوفران في المخزون وتم فحص القطعة وتجهيزها للتسليم.'
     : isElectronics
     ? 'أهلاً بك يا فندم! الأجهزة أصلية مع ضمان سنتين معتمد وتم تجهيزها للتسليم للمندوب فوراً.'
     : isSupermarket
@@ -801,6 +820,29 @@ export const CustomerChat: React.FC = () => {
                 <span>تتبع الشحنة بالصندوق</span>
               </button>
             )}
+          </div>
+
+          {/* Category-based Quick Replies */}
+          <div className="pt-2 border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
+            <span className="text-slate-500 font-semibold text-[11px] shrink-0">
+              ردود سريعة:
+            </span>
+            {quickReplies.map((reply, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  if (senderMode === 'CUSTOMER') {
+                    sendChatMessage(reply, 'TEXT');
+                  } else {
+                    sendMerchantReply(reply, 'TEXT');
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-blue-400 hover:bg-blue-50 text-slate-700 text-[11px] font-medium shrink-0 transition-colors shadow-2xs cursor-pointer"
+              >
+                {reply}
+              </button>
+            ))}
           </div>
         </div>
 

@@ -63,6 +63,23 @@ export const Navbar: React.FC<{
 
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // Filter notifications strictly relevant to active role/user
+  const userNotifications = notifications.filter((item) => {
+    if (role === 'DRIVER') {
+      const driverId = currentUser?.id || 'drv-1';
+      return !item.targetRole || item.targetRole === 'DRIVER' || item.driverId === driverId;
+    }
+    if (role === 'CUSTOMER') {
+      const customerId = currentUser?.id || 'cust-1';
+      return item.targetRole !== 'DRIVER' && (!item.customerId || item.customerId === customerId);
+    }
+    if (role === 'MERCHANT') {
+      return item.targetRole !== 'DRIVER' && item.targetRole !== 'CUSTOMER';
+    }
+    return true; // ADMIN sees all
+  });
+  const roleUnreadCount = userNotifications.filter((n) => !n.read).length;
+
   // Quick roles metadata for Demo Mode
   const demoRoleItems: { id: ActorRole; label: string; icon: React.ReactNode; color: string }[] = [
     {
@@ -347,9 +364,9 @@ export const Navbar: React.FC<{
                 title="التنبيهات والأحداث"
               >
                 <Bell className="w-4 h-4" />
-                {unreadCount > 0 && (
+                {roleUnreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-500 text-[10px] font-bold text-slate-950">
-                    {unreadCount}
+                    {roleUnreadCount}
                   </span>
                 )}
               </button>
@@ -362,7 +379,7 @@ export const Navbar: React.FC<{
                       <Bell className="w-4 h-4 text-cyan-400" />
                       <span className="text-xs font-bold text-slate-100">التنبيهات والأحداث اللحظية</span>
                     </div>
-                    {unreadCount > 0 && (
+                    {roleUnreadCount > 0 && (
                       <button
                         onClick={markAllNotificationsRead}
                         className="text-[11px] text-cyan-400 hover:text-cyan-300"
@@ -372,10 +389,10 @@ export const Navbar: React.FC<{
                     )}
                   </div>
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/60 p-1">
-                    {notifications.length === 0 ? (
+                    {userNotifications.length === 0 ? (
                       <p className="text-xs text-slate-400 text-center py-6">لا توجد تنبيهات حالياً</p>
                     ) : (
-                      notifications.map((item) => (
+                      userNotifications.map((item) => (
                         <div
                           key={item.id}
                           onClick={() => markNotificationRead(item.id)}
