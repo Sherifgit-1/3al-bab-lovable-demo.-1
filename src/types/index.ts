@@ -33,7 +33,8 @@ export type AuthorizationStatus =
   | 'USED'
   | 'EXPIRED'
   | 'REVOKED'
-  | 'DENIED';
+  | 'DENIED'
+  | 'REJECTED';
 
 export type CompartmentSize = 'S' | 'M' | 'L' | 'XL';
 
@@ -112,6 +113,8 @@ export interface TemporaryAccessAuthorization {
   otpValidated?: boolean;
   otpValidatedAt?: string;
   isOtpConsumed?: boolean;
+  requestReason?: string;
+  isRetry?: boolean;
 }
 
 export interface SmartBoxAccessSession {
@@ -156,6 +159,7 @@ export type AuditAction =
   | 'DELIVERY_COMPLETED'
   | 'DELIVERY_FAILED'
   | 'ACCESS_DENIED'
+  | 'ACCESS_EXPIRED'
   | 'OTP_EXPIRED'
   | 'TAMPER_DETECTED'
   | 'EMERGENCY_LOCKDOWN';
@@ -254,6 +258,9 @@ export interface Order {
   confirmedAt?: string;
   proofOfDeliverySentToMerchant?: boolean;
   proofOfDeliverySentToCustomer?: boolean;
+  lastTimeoutAt?: string;
+  timeoutReason?: string;
+  failureReason?: string;
 }
 
 export interface Merchant {

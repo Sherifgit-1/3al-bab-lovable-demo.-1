@@ -115,6 +115,10 @@ export class MockAuditService implements IAuditService {
     return this.auditLogs.slice(0, limit);
   }
 
+  async getEventsForOrder(orderId: string): Promise<AuditLog[]> {
+    return this.auditLogs.filter((log) => log.orderId === orderId);
+  }
+
   async getSecurityEvents(): Promise<SecurityEvent[]> {
     return this.securityEvents;
   }

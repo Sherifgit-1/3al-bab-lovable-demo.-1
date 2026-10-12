@@ -19,6 +19,7 @@ import {
   Tag,
   FileText,
   ShoppingBag,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const CustomerCheckout: React.FC = () => {
@@ -41,6 +42,7 @@ export const CustomerCheckout: React.FC = () => {
     'يرجى إيداع الطرد بالحجيرة المحددة وإغلاق الباب بإحكام.'
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const merchant = merchants.find((m) => m.id === selectedMerchantId) || merchants[0];
   const merchantProducts = products.filter((p) => p.merchantId === merchant.id);
@@ -114,16 +116,22 @@ export const CustomerCheckout: React.FC = () => {
 
   const handleConfirmOrder = async () => {
     setIsSubmitting(true);
-    await placeNewOrder({
-      items,
-      compartmentSize: selectedSize,
-      merchantId: merchant.id,
-      deliveryAddress,
-      deliveryNotes,
-      smartBoxId: selectedBoxId,
-    });
-    setIsSubmitting(false);
-    setCustomerView('TRACKING');
+    setErrorMessage(null);
+    try {
+      await placeNewOrder({
+        items,
+        compartmentSize: selectedSize,
+        merchantId: merchant.id,
+        deliveryAddress,
+        deliveryNotes,
+        smartBoxId: selectedBoxId,
+      });
+      setCustomerView('TRACKING');
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'حدث خطأ أثناء حجز الحجيرة وتأكيد الطلب.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -346,6 +354,13 @@ export const CustomerCheckout: React.FC = () => {
                 OTP وفحص الوزن.
               </span>
             </div>
+
+            {errorMessage && (
+              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800 text-[11px] text-rose-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
             {/* Submit Button */}
             <button

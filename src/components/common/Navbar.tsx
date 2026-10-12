@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { useAuth, DEMO_ACCOUNTS } from '../../context/AuthContext';
+import { useAuth, DEMO_ACCOUNTS, DEMO_MERCHANT_OPTIONS } from '../../context/AuthContext';
 import { ActorRole } from '../../types';
 import {
   Box,
@@ -57,6 +57,8 @@ export const Navbar: React.FC<{
     currentUser,
     logout,
     switchDemoRole,
+    switchDemoMerchant,
+    currentDemoMerchantId,
     isDemoMode,
     setIsDemoMode,
   } = useAuth();
@@ -66,12 +68,12 @@ export const Navbar: React.FC<{
   // Filter notifications strictly relevant to active role/user
   const userNotifications = notifications.filter((item) => {
     if (role === 'DRIVER') {
-      const driverId = currentUser?.id || 'drv-1';
-      return !item.targetRole || item.targetRole === 'DRIVER' || item.driverId === driverId;
+      const driverId = currentUser?.id;
+      return !item.targetRole || item.targetRole === 'DRIVER' || (driverId ? item.driverId === driverId : true);
     }
     if (role === 'CUSTOMER') {
-      const customerId = currentUser?.id || 'cust-1';
-      return item.targetRole !== 'DRIVER' && (!item.customerId || item.customerId === customerId);
+      const customerId = currentUser?.id;
+      return item.targetRole !== 'DRIVER' && (!item.customerId || (customerId ? item.customerId === customerId : true));
     }
     if (role === 'MERCHANT') {
       return item.targetRole !== 'DRIVER' && item.targetRole !== 'CUSTOMER';
@@ -468,15 +470,16 @@ export const Navbar: React.FC<{
 
       {/* Developer / Demo Mode Panel (ONLY visible when isDemoMode is toggled ON) */}
       {isDemoMode && (
-        <div className="bg-slate-900/95 border-t border-amber-900/50 px-3 sm:px-6 py-2 shadow-inner">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs">
-            <div className="flex items-center gap-2 text-amber-300 font-bold">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>أدوات المطورين وبيئة التجربة (Demo Quick Role Switcher):</span>
+        <div className="bg-slate-900/95 border-t border-amber-900/50 px-2 sm:px-6 py-1 sm:py-2 shadow-inner">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2.5 text-xs">
+            <div className="flex items-center gap-1.5 text-amber-300 font-bold self-start sm:self-auto text-[11px] sm:text-xs">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">أدوات المطورين وبيئة التجربة (Demo Quick Role Switcher):</span>
+              <span className="sm:hidden text-[10px]">تبديل الدور (Demo):</span>
             </div>
 
             {/* Quick Switch Buttons for all 4 roles */}
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto pb-0.5 sm:pb-0 scrollbar-none sm:flex-wrap">
               {demoRoleItems.map((r) => {
                 const isActive = role === r.id;
                 return (
@@ -487,7 +490,7 @@ export const Navbar: React.FC<{
                       switchDemoRole(r.id);
                       setRole(r.id);
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all border ${
+                    className={`shrink-0 flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1 rounded-md sm:rounded-lg text-[10px] sm:text-xs font-bold transition-all border ${
                       isActive
                         ? `${r.color} shadow-sm ring-1 ring-white/20`
                         : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -499,6 +502,29 @@ export const Navbar: React.FC<{
                 );
               })}
             </div>
+
+            {/* Demo Merchant Account Selector — ONLY visible in Demo Merchant mode */}
+            {role === 'MERCHANT' && (
+              <div
+                id="navbar-demo-merchant-selector"
+                className="flex items-center gap-2 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1 rounded-xl text-xs shrink-0 self-start sm:self-auto"
+              >
+                <Store className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="text-[11px] font-bold text-white shrink-0">حساب التاجر للتجربة:</span>
+                <select
+                  id="navbar-demo-merchant-select"
+                  value={currentDemoMerchantId}
+                  onChange={(e) => switchDemoMerchant(e.target.value)}
+                  className="bg-slate-950 border border-emerald-600/50 hover:border-emerald-400 text-white text-[11px] rounded-lg px-2 py-0.5 outline-none font-medium cursor-pointer shadow-sm"
+                >
+                  {DEMO_MERCHANT_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id} className="bg-slate-900 text-white">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
       )}

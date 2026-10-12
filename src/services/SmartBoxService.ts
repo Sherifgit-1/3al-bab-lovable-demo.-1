@@ -59,6 +59,30 @@ export class MockSmartBoxService implements ISmartBoxService {
     return [...this.boxes];
   }
 
+  reconcileWithOrders(activeOrderIds: string[]): SmartBox[] {
+    const idSet = new Set(activeOrderIds);
+    let changed = false;
+    this.boxes.forEach((box) => {
+      box.compartments.forEach((comp) => {
+        // If a compartment is marked RESERVED or OCCUPIED but has no order or its order is no longer active, free it
+        if (comp.status === 'RESERVED' || comp.status === 'OCCUPIED') {
+          if (!comp.currentOrderId || !idSet.has(comp.currentOrderId)) {
+            comp.status = 'AVAILABLE';
+            comp.currentOrderId = undefined;
+            comp.currentWeightKg = 0;
+            comp.isSolenoidLocked = true;
+            comp.isDoorClosed = true;
+            changed = true;
+          }
+        }
+      });
+    });
+    if (changed) {
+      this.notify();
+    }
+    return [...this.boxes];
+  }
+
   async getBox(boxId: string): Promise<SmartBox | undefined> {
     return this.boxes.find((b) => b.id === boxId);
   }

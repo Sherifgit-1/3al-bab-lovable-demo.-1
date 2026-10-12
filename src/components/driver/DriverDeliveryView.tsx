@@ -5,6 +5,8 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
+import { Order, OrderStatus } from '../../types';
 import {
   Truck,
   MapPin,
@@ -27,9 +29,13 @@ import {
   Wifi,
   Package,
   Layers,
+  XCircle,
 } from 'lucide-react';
 
 export const DriverDeliveryView: React.FC = () => {
+  const { currentUser } = useAuth();
+  const currentDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : currentUser?.id;
+
   const {
     orders,
     activeOrder,
@@ -39,6 +45,7 @@ export const DriverDeliveryView: React.FC = () => {
     driverPickupOrder,
     driverStartDelivery,
     driverArriveAtBox,
+    driverRequestAccess,
     driverSubmitOTP,
     driverOpenBox,
     driverDepositPackage,
@@ -55,59 +62,163 @@ export const DriverDeliveryView: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [remainingAuthSeconds, setRemainingAuthSeconds] = useState<number>(300);
 
-  // Orders visible to the driver: either assigned to drv-1 or active in delivery
-  const driverOrders = orders.filter(
-    (o) =>
-      o.driverId === 'drv-1' ||
-      [
-        'ASSIGNED_TO_DRIVER',
-        'PICKED_UP',
-        'OUT_FOR_DELIVERY',
-        'DRIVER_ARRIVED',
-        'ACCESS_AUTHORIZED',
-        'OTP_VALIDATED',
-        'SMART_BOX_OPENED',
-        'PACKAGE_DEPOSITED',
-        'SMART_BOX_SECURED',
-      ].includes(o.status)
-  );
+  const [justCompletedOrder, setJustCompletedOrder] = useState<Order | null>(null);
 
-  const currentOrder =
-    driverOrders.find((o) => o.id === activeOrder?.id) || driverOrders[0] || activeOrder;
+  const ACTIVE_DRIVER_STATUSES: OrderStatus[] = [
+    'ASSIGNED_TO_DRIVER',
+    'PICKED_UP',
+    'OUT_FOR_DELIVERY',
+    'DRIVER_ARRIVED',
+    'ACCESS_AUTHORIZED',
+    'OTP_VALIDATED',
+    'SMART_BOX_OPENED',
+    'PACKAGE_DEPOSITED',
+    'SMART_BOX_SECURED',
+  ];
 
-  const activeAuth = authorizations.find(
-    (a) => a.orderId === currentOrder?.id && a.status === 'ACTIVE'
-  );
+  const TERMINAL_STATUSES: OrderStatus[] = [
+    'COMPLETED',
+    'CANCELLED',
+    'REJECTED',
+    'DELIVERY_FAILED',
+  ];
+
+  // Orders visible to the driver: strictly actionable active orders assigned to the driver
+  // COMPLETED, CANCELLED, REJECTED, and DELIVERY_FAILED must NEVER appear in the active assigned list
+  const driverOrders = currentDriverId
+    ? orders.filter(
+        (o) =>
+          ACTIVE_DRIVER_STATUSES.includes(o.status) &&
+          !TERMINAL_STATUSES.includes(o.status) &&
+          (o.driverId === currentDriverId || (!o.driverId && o.status === 'ASSIGNED_TO_DRIVER'))
+      )
+    : [];
+
+  // Current order resolution:
+  // If in step 5 showing the just completed order, display it
+  // Otherwise, strictly select the explicitly selected active order if it belongs to current driver
+  // NEVER automatically fallback to first driver order or any unrelated/completed order
+  const currentOrder: Order | null =
+    (driverStep === 5 && justCompletedOrder ? justCompletedOrder : null) ||
+    (activeOrder &&
+    ACTIVE_DRIVER_STATUSES.includes(activeOrder.status) &&
+    !TERMINAL_STATUSES.includes(activeOrder.status) &&
+    (activeOrder.driverId === currentDriverId || (!activeOrder.driverId && activeOrder.status === 'ASSIGNED_TO_DRIVER'))
+      ? driverOrders.find((o) => o.id === activeOrder.id) || null
+      : null);
+
+  const [nowMs, setNowMs] = React.useState<number>(Date.now());
+  React.useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeAuth =
+    currentOrder && currentOrder.status !== 'COMPLETED'
+      ? authorizations
+          .filter(
+            (a) =>
+              a.orderId === currentOrder.id &&
+              a.status === 'ACTIVE' &&
+              (!a.expiresAtTimestamp || a.expiresAtTimestamp > nowMs) &&
+              (!a.driverId || !currentOrder.driverId || a.driverId === currentOrder.driverId || a.driverId === currentDriverId) &&
+              (!currentOrder.customerId || a.customerId === currentOrder.customerId) &&
+              (!currentOrder.smartBoxId || a.smartBoxId === currentOrder.smartBoxId) &&
+              (!currentOrder.compartmentId || a.compartmentId === currentOrder.compartmentId) &&
+              !a.usedAt
+          )
+          .sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0]
+      : undefined;
+
+  const pendingAuth =
+    currentOrder && currentOrder.status !== 'COMPLETED'
+      ? authorizations
+          .filter(
+            (a) =>
+              a.orderId === currentOrder.id &&
+              a.status === 'PENDING' &&
+              (!a.driverId || !currentOrder.driverId || a.driverId === currentOrder.driverId || a.driverId === currentDriverId) &&
+              (!currentOrder.customerId || a.customerId === currentOrder.customerId) &&
+              (!currentOrder.smartBoxId || a.smartBoxId === currentOrder.smartBoxId) &&
+              (!currentOrder.compartmentId || a.compartmentId === currentOrder.compartmentId)
+          )
+          .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0]
+      : undefined;
+
+  const expiredAuth =
+    currentOrder && currentOrder.status !== 'COMPLETED'
+      ? authorizations
+          .filter(
+            (a) =>
+              a.orderId === currentOrder.id &&
+              (a.status === 'EXPIRED' ||
+                (a.status === 'ACTIVE' && a.expiresAtTimestamp && a.expiresAtTimestamp <= nowMs)) &&
+              (!a.driverId || !currentOrder.driverId || a.driverId === currentOrder.driverId || a.driverId === currentDriverId)
+          )
+          .sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0]
+      : undefined;
+
+  const rejectedAuth =
+    currentOrder && currentOrder.status !== 'COMPLETED'
+      ? authorizations
+          .filter(
+            (a) =>
+              a.orderId === currentOrder.id &&
+              a.status === 'REJECTED' &&
+              (!a.driverId || !currentOrder.driverId || a.driverId === currentOrder.driverId || a.driverId === currentDriverId)
+          )
+          .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0]
+      : undefined;
+
+  // Auto-sync OTP input when a new active authorization is issued
+  React.useEffect(() => {
+    if (activeAuth?.otp) {
+      setOtpInput(activeAuth.otp);
+    }
+  }, [activeAuth?.otp, activeAuth?.id]);
 
   // Countdown timer for active driver authorization (5 minutes window)
   React.useEffect(() => {
-    if (!activeAuth) {
+    if (!activeAuth || !currentOrder || activeAuth.status !== 'ACTIVE') {
       setRemainingAuthSeconds(0);
       return;
     }
     const updateCountdown = () => {
       const expiresAt = activeAuth.expiresAtTimestamp || (Date.now() + 5 * 60 * 1000);
-      const diff = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
-      setRemainingAuthSeconds(diff);
+      const diff = Math.floor((expiresAt - Date.now()) / 1000);
+      if (diff <= 0) {
+        setRemainingAuthSeconds(0);
+        // CRITICAL: Authorization window expired before box was opened -> Trigger timeout cycle!
+        driverExpireAccessSession(currentOrder.id);
+      } else {
+        setRemainingAuthSeconds(diff);
+      }
     };
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [activeAuth]);
+  }, [activeAuth?.id, activeAuth?.expiresAtTimestamp, activeAuth?.status, currentOrder?.id]);
 
   const [remainingSessionSeconds, setRemainingSessionSeconds] = useState<number>(300);
 
   // Check if box is currently open in active access session
-  const isAccessSessionActive =
-    Boolean(currentOrder) &&
+  const isAccessSessionActive = Boolean(
+    currentOrder &&
     (currentOrder.status === 'SMART_BOX_OPENED' || currentOrder.status === 'PACKAGE_DEPOSITED') &&
     accessSession?.status === 'ACTIVE' &&
-    accessSession?.orderId === currentOrder?.id;
+    accessSession?.orderId === currentOrder.id
+  );
 
-  const isAccessSessionExpired =
-    Boolean(currentOrder) &&
-    accessSession?.status === 'EXPIRED' &&
-    accessSession?.orderId === currentOrder?.id;
+  // Authorization or access session expired before package was deposited
+  const isTimeoutExpired = Boolean(
+    currentOrder &&
+    currentOrder.status !== 'PACKAGE_DEPOSITED' &&
+    currentOrder.status !== 'SMART_BOX_SECURED' &&
+    currentOrder.status !== 'COMPLETED' &&
+    !activeAuth &&
+    !pendingAuth &&
+    (expiredAuth || (accessSession?.status === 'EXPIRED' && accessSession?.orderId === currentOrder.id))
+  );
 
   // Countdown timer for 5-minute Smart Box Access Session (stops when box is secured, auto-expires when reaches 00:00)
   React.useEffect(() => {
@@ -139,25 +250,30 @@ export const DriverDeliveryView: React.FC = () => {
   // Auto-sync driverStep to match currentOrder.status on load / status change
   React.useEffect(() => {
     if (!currentOrder) return;
-    if (currentOrder.status === 'DRIVER_ARRIVED' && !activeAuth && driverStep < 2) {
-      setDriverStep(2);
+    if (currentOrder.status === 'DRIVER_ARRIVED') {
+      if (activeAuth) {
+        setDriverStep(3);
+      } else {
+        setDriverStep(2);
+      }
     } else if (
-      (currentOrder.status === 'ACCESS_AUTHORIZED' || currentOrder.status === 'OTP_VALIDATED' || (currentOrder.status === 'DRIVER_ARRIVED' && activeAuth)) &&
-      driverStep < 3
+      (currentOrder.status === 'ACCESS_AUTHORIZED' || currentOrder.status === 'OTP_VALIDATED') &&
+      activeAuth
     ) {
       setDriverStep(3);
     } else if (
       ['SMART_BOX_OPENED', 'PACKAGE_DEPOSITED', 'SMART_BOX_SECURED'].includes(currentOrder.status) &&
-      driverStep < 4
+      !isTimeoutExpired
     ) {
       setDriverStep(4);
-    } else if (currentOrder.status === 'COMPLETED' && driverStep < 5) {
+    } else if (currentOrder.status === 'COMPLETED') {
       setDriverStep(5);
     }
-  }, [currentOrder?.status, activeAuth]);
+  }, [currentOrder?.status, activeAuth?.id, isTimeoutExpired]);
 
   // Lifecycle Actions
   const handlePickup = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
@@ -170,6 +286,7 @@ export const DriverDeliveryView: React.FC = () => {
   };
 
   const handleStartDelivery = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
@@ -183,6 +300,7 @@ export const DriverDeliveryView: React.FC = () => {
   };
 
   const handleArrival = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
@@ -195,13 +313,13 @@ export const DriverDeliveryView: React.FC = () => {
     }
   };
 
-
-
   const handleValidateOtp = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
-      const res = await driverSubmitOTP(currentOrder.id, otpInput);
+      const codeToSubmit = otpInput.trim() || activeAuth?.otp || '';
+      const res = await driverSubmitOTP(currentOrder.id, codeToSubmit);
       if (!res.success) {
         setErrorMessage(res.message);
         return;
@@ -214,7 +332,24 @@ export const DriverDeliveryView: React.FC = () => {
     }
   };
 
+  const handleRequestAccessRetry = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
+    setIsProcessing(true);
+    setErrorMessage('');
+    try {
+      const res = await driverRequestAccess(currentOrder.id, true);
+      if (!res.success) {
+        setErrorMessage(res.message);
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'فشل إرسال طلب تصريح فتح جديد');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleOpenBox = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
@@ -228,10 +363,11 @@ export const DriverDeliveryView: React.FC = () => {
   };
 
   const handleDepositPackage = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
-      await driverDepositPackage(currentOrder.id, 1.4);
+      await driverDepositPackage(currentOrder.id, 1.4, activeAuth?.id);
     } catch (err: any) {
       setErrorMessage(err?.message || 'فشل إيداع الشحنة في الحجيرة');
     } finally {
@@ -240,6 +376,7 @@ export const DriverDeliveryView: React.FC = () => {
   };
 
   const handleSecureBox = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
@@ -252,9 +389,12 @@ export const DriverDeliveryView: React.FC = () => {
   };
 
   const handleCompleteDelivery = async () => {
+    if (!currentOrder || currentOrder.status === 'COMPLETED') return;
     setIsProcessing(true);
     setErrorMessage('');
     try {
+      const orderCopy = { ...currentOrder, status: 'COMPLETED' as OrderStatus };
+      setJustCompletedOrder(orderCopy);
       await driverCompleteDelivery(currentOrder.id);
       setDriverStep(5);
     } catch (err: any) {
@@ -262,6 +402,12 @@ export const DriverDeliveryView: React.FC = () => {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleReturnToAssignedOrders = () => {
+    setJustCompletedOrder(null);
+    setActiveOrderId(null);
+    setDriverStep(1);
   };
 
   return (
@@ -279,13 +425,15 @@ export const DriverDeliveryView: React.FC = () => {
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white font-['Cairo'] tracking-tight">
-              توصيل شحنة للصندوق الذكي #{currentOrder?.id}
+              {currentOrder ? `توصيل شحنة للصندوق الذكي #${currentOrder.id}` : 'لوحة مهام التوصيل الميداني'}
             </h1>
-            <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-amber-400" />
-              الوجهة: <span className="text-amber-300 font-bold">{currentOrder?.smartBoxId}</span> •{' '}
-              {currentOrder?.deliveryAddress || 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس'}
-            </p>
+            {currentOrder && (
+              <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                الوجهة: <span className="text-amber-300 font-bold">{currentOrder.smartBoxId}</span> •{' '}
+                {currentOrder.deliveryAddress || 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس'}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col sm:items-end gap-2">
@@ -293,20 +441,25 @@ export const DriverDeliveryView: React.FC = () => {
               <Coins className="w-4 h-4 text-amber-400" />
               مكافأة التسليم: +45.00 ج.م
             </span>
-            <div className="text-[11px] text-cyan-300 font-mono">
-              حالة الطلب الحالية: <span className="font-bold underline">{currentOrder?.status}</span>
-            </div>
+            {currentOrder && (
+              <div className="text-[11px] text-cyan-300 font-mono">
+                حالة الطلب الحالية: <span className="font-bold underline">{currentOrder.status}</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Assigned Orders Selector for Driver */}
-        {driverOrders.length > 1 && (
+        {driverOrders.length > 0 && (
           <div className="flex items-center gap-2 pt-3 mt-3 border-t border-slate-800/80 overflow-x-auto pb-1">
             <span className="text-xs text-slate-400 whitespace-nowrap">الطلبات المسندة إليك:</span>
             {driverOrders.map((ord) => (
               <button
                 key={ord.id}
-                onClick={() => setActiveOrderId(ord.id)}
+                onClick={() => {
+                  setJustCompletedOrder(null);
+                  setActiveOrderId(ord.id);
+                }}
                 className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all ${
                   ord.id === currentOrder?.id
                     ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
@@ -320,37 +473,73 @@ export const DriverDeliveryView: React.FC = () => {
         )}
 
         {/* Workflow Phase Stepper */}
-        <div className="grid grid-cols-5 gap-2 pt-4 mt-4 border-t border-slate-800/80 text-center text-xs">
-          {[
-            { step: 1, label: 'الملاحة بالخريطة' },
-            { step: 2, label: 'الوصول والسياج' },
-            { step: 3, label: 'تصريح فتح الصندوق' },
-            { step: 4, label: 'إيداع الطرد والوزن' },
-            { step: 5, label: 'توثيق POD والمكافأة' },
-          ].map((s) => {
-            const isActive = driverStep === s.step;
-            const isDone = driverStep > s.step;
-            return (
-              <div
-                key={s.step}
-                className={`p-2 rounded-xl border select-none transition-all ${
-                  isActive
-                    ? 'bg-amber-950/80 border-amber-400 text-amber-300 font-bold ring-1 ring-amber-400'
-                    : isDone
-                    ? 'bg-slate-950 border-emerald-700/60 text-slate-300'
-                    : 'bg-slate-950/40 border-slate-800/80 text-slate-500'
-                }`}
-              >
-                <div className="text-[10px] text-slate-400 mb-0.5 font-mono">مرحلة {s.step}</div>
-                <div className="text-[11px] truncate">{s.label}</div>
-              </div>
-            );
-          })}
-        </div>
+        {currentOrder && (
+          <div className="grid grid-cols-5 gap-2 pt-4 mt-4 border-t border-slate-800/80 text-center text-xs">
+            {[
+              { step: 1, label: 'الملاحة بالخريطة' },
+              { step: 2, label: 'الوصول والسياج' },
+              { step: 3, label: 'تصريح فتح الصندوق' },
+              { step: 4, label: 'إيداع الطرد والوزن' },
+              { step: 5, label: 'توثيق POD والمكافأة' },
+            ].map((s) => {
+              const effectiveStep = currentOrder.status === 'COMPLETED' ? 5 : driverStep;
+              const isActive = effectiveStep === s.step;
+              const isDone = effectiveStep > s.step;
+              return (
+                <div
+                  key={s.step}
+                  className={`p-2 rounded-xl border select-none transition-all ${
+                    isActive
+                      ? 'bg-amber-950/80 border-amber-400 text-amber-300 font-bold ring-1 ring-amber-400'
+                      : isDone
+                      ? 'bg-slate-950 border-emerald-700/60 text-slate-300'
+                      : 'bg-slate-950/40 border-slate-800/80 text-slate-500'
+                  }`}
+                >
+                  <div className="text-[10px] text-slate-400 mb-0.5 font-mono">مرحلة {s.step}</div>
+                  <div className="text-[11px] truncate">{s.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
+      {/* Empty State when no active driver order is selected or assigned */}
+      {!currentOrder && (
+        <div className="p-12 rounded-3xl bg-slate-900/90 border border-slate-800 text-center space-y-4 shadow-xl">
+          <div className="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700 text-slate-400 flex items-center justify-center mx-auto">
+            <Package className="w-8 h-8" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-white font-['Cairo']">
+              {driverOrders.length > 0 ? 'يرجى اختيار طلب لمتابعته' : 'لا توجد طلبات مسندة حالياً'}
+            </h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+              {driverOrders.length > 0
+                ? 'لديك طلبات مسندة نشطة، يرجى اختيار أحد الطلبات من القائمة لبدء إجراءات التوصيل والتسليم.'
+                : 'جميع طلبات التوصيل مكتملة أو لم يتم إسناد طلبات نشطة لك بعد. سيظهر أي طلب جديد فور إسناده من التاجر.'}
+            </p>
+          </div>
+          {driverOrders.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-2 pt-2">
+              {driverOrders.map((ord) => (
+                <button
+                  key={ord.id}
+                  onClick={() => setActiveOrderId(ord.id)}
+                  className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>بدء الطلب #{ord.id} ({ord.customerName})</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* PHASE 0: If Order is ASSIGNED_TO_DRIVER or PICKED_UP */}
-      {currentOrder?.status === 'ASSIGNED_TO_DRIVER' && (
+      {currentOrder && currentOrder.status !== 'COMPLETED' && currentOrder.status === 'ASSIGNED_TO_DRIVER' && (
         <div className="p-6 rounded-2xl bg-slate-900 border border-amber-500/40 space-y-4 shadow-xl">
           <div className="flex items-center gap-2 text-amber-400">
             <Package className="w-5 h-5" />
@@ -363,7 +552,7 @@ export const DriverDeliveryView: React.FC = () => {
           <button
             onClick={handlePickup}
             disabled={isProcessing}
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>تأكيد استلام الطرد من المتجر (PICKED_UP)</span>
@@ -371,7 +560,7 @@ export const DriverDeliveryView: React.FC = () => {
         </div>
       )}
 
-      {currentOrder?.status === 'PICKED_UP' && (
+      {currentOrder && currentOrder.status !== 'COMPLETED' && currentOrder.status === 'PICKED_UP' && (
         <div className="p-6 rounded-2xl bg-slate-900 border border-blue-500/40 space-y-4 shadow-xl">
           <div className="flex items-center gap-2 text-blue-400">
             <Navigation className="w-5 h-5 animate-spin" />
@@ -383,7 +572,7 @@ export const DriverDeliveryView: React.FC = () => {
           <button
             onClick={handleStartDelivery}
             disabled={isProcessing}
-            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             <Truck className="w-4 h-4" />
             <span>بدء خط السير والملاحة نحو الصندوق الذكي (OUT_FOR_DELIVERY)</span>
@@ -392,7 +581,7 @@ export const DriverDeliveryView: React.FC = () => {
       )}
 
       {/* PHASE 1: In-transit Navigation */}
-      {driverStep === 1 && currentOrder?.status !== 'ASSIGNED_TO_DRIVER' && currentOrder?.status !== 'PICKED_UP' && (
+      {currentOrder && currentOrder.status !== 'COMPLETED' && driverStep === 1 && currentOrder.status !== 'ASSIGNED_TO_DRIVER' && currentOrder.status !== 'PICKED_UP' && (
         <div className="space-y-4">
           <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 shadow-xl">
             {/* Navigation HUD Metrics */}
@@ -462,8 +651,131 @@ export const DriverDeliveryView: React.FC = () => {
         </div>
       )}
 
-      {/* PHASE 2: Arrival at Box & Geofence Verified */}
-      {driverStep === 2 && (
+      {/* TIMEOUT EXPIRED STATE (Requirements 2, 8, 16): When authorization expires before package is deposited */}
+      {currentOrder && currentOrder.status !== 'COMPLETED' && isTimeoutExpired && (
+        <div className="p-6 rounded-2xl bg-gradient-to-br from-rose-950/90 via-slate-900 to-amber-950/70 border-2 border-rose-500/80 space-y-5 text-center shadow-2xl animate-in zoom-in-95">
+          <div className="w-16 h-16 rounded-2xl bg-rose-950 border border-rose-500 text-rose-400 flex items-center justify-center mx-auto shadow-lg shadow-rose-950/80">
+            <Clock className="w-8 h-8 animate-pulse text-rose-400" />
+          </div>
+
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-950 text-rose-300 border border-rose-700">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>انتهت مهلة الإيداع</span>
+            </div>
+            <h3 className="text-lg font-black text-white">انتهت مهلة الإيداع ولم يتم تسجيل إيداع الشحنة</h3>
+            <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+              انتهت مهلة الإيداع ولم يتم تسجيل إيداع الشحنة. تم قفل الصندوق تلقائيًا.
+            </p>
+            <p className="text-[11px] text-slate-400">
+              تم إلغاء صلاحية رمز OTP السابق وقفل الحجيرة آلياً لحماية الأمان. يمكنك الضغط أدناه لإرسال طلب إذن جديد للعميل.
+            </p>
+          </div>
+
+          {/* Safe physical locked indicators (Requirement 9) */}
+          <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto text-xs font-bold text-slate-200">
+            <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>الباب مغلق ✓</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-2">
+              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>الصندوق مقفول ✓</span>
+            </div>
+          </div>
+
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs flex items-center justify-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {/* Active Enabled Retry CTA Button (Requirements 2, 5, 14) */}
+          <button
+            id="btn-request-access-retry"
+            onClick={handleRequestAccessRetry}
+            disabled={isProcessing}
+            className="w-full max-w-md mx-auto py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm transition-all shadow-xl shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            <KeyRound className="w-5 h-5" />
+            <span>{isProcessing ? 'جاري إرسال طلب تصريح جديد...' : 'طلب إذن فتح مرة أخرى'}</span>
+          </button>
+        </div>
+      )}
+
+      {/* PENDING APPROVAL STATE (Requirements 2, 5, 16): Waiting for customer approval */}
+      {currentOrder && currentOrder.status !== 'COMPLETED' && pendingAuth && !activeAuth && !isTimeoutExpired && (
+        <div className="p-6 rounded-2xl bg-slate-900 border border-amber-500/50 space-y-5 text-center shadow-xl animate-in zoom-in-95">
+          <div className="w-16 h-16 rounded-2xl bg-amber-950/80 border border-amber-500 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
+            <Clock className="w-8 h-8 animate-spin text-amber-400" />
+          </div>
+
+          <div className="space-y-2">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-950 text-amber-300 border border-amber-700">
+              في انتظار موافقة العميل
+            </span>
+            <h3 className="text-lg font-bold text-white">
+              {pendingAuth.isRetry ? 'طلب إذن فتح جديد معلق' : 'طلب إذن فتح الصندوق معلق'}
+            </h3>
+            <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+              تم إرسال طلب تصريح فتح جديد للعميل. بانتظار الموافقة وإصدار رمز التحقق الجديد.
+            </p>
+            <p className="text-[11px] text-slate-400">
+              جاري انتظار موافقة العميل على منح إذن فتح جديد...
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 max-w-sm mx-auto flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>الصندوق: {currentOrder.smartBoxId}</span>
+            <span>الحجيرة: {currentOrder.compartmentId || '01'}</span>
+            <span className="text-amber-400 font-bold">بانتظار الاعتماد</span>
+          </div>
+        </div>
+      )}
+
+      {/* REJECTED STATE (Requirements 6 & 16): When customer rejects access request */}
+      {currentOrder && currentOrder.status !== 'COMPLETED' && rejectedAuth && !activeAuth && !pendingAuth && !isTimeoutExpired && (
+        <div className="p-6 rounded-2xl bg-rose-950/80 border-2 border-rose-500/80 space-y-5 text-center shadow-2xl animate-in zoom-in-95">
+          <div className="w-16 h-16 rounded-2xl bg-rose-950 border border-rose-500 text-rose-400 flex items-center justify-center mx-auto shadow-lg shadow-rose-950/80">
+            <XCircle className="w-8 h-8 text-rose-400" />
+          </div>
+
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-900 text-rose-200 border border-rose-700">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>تم رفض طلب فتح الصندوق</span>
+            </div>
+            <h3 className="text-lg font-black text-white">قام العميل برفض إذن فتح الصندوق الذكي</h3>
+            <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+              تم رفض التصريح من قبل العميل. الصندوق مقفول ومؤمن تماماً ولا يمكن فتحه بدون موافقة صريحة من العميل.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto text-xs font-bold text-slate-200">
+            <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>الباب مغلق ✓</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-2">
+              <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>الصندوق مقفول ✓</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleRequestAccessRetry}
+            disabled={isProcessing}
+            className="w-full max-w-md mx-auto py-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm transition-all shadow-xl shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            <KeyRound className="w-5 h-5" />
+            <span>{isProcessing ? 'جاري إرسال طلب تصريح جديد...' : 'طلب إذن فتح مرة أخرى'}</span>
+          </button>
+        </div>
+      )}
+
+      {/* PHASE 2: Arrival at Box & Initial Access Request */}
+      {currentOrder && currentOrder.status !== 'COMPLETED' && driverStep === 2 && !isTimeoutExpired && !pendingAuth && !activeAuth && !rejectedAuth && (
         <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-5 text-center shadow-xl">
           <div className="w-16 h-16 rounded-2xl bg-emerald-950/80 border border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-950/60">
             <CheckCircle2 className="w-8 h-8" />
@@ -483,57 +795,28 @@ export const DriverDeliveryView: React.FC = () => {
             </span>
           </div>
 
-          {activeAuth ? (
-            <div className="space-y-3 max-w-md mx-auto text-right">
-              {/* In-App Push Notification Simulation */}
-              <div
-                onClick={() => setDriverStep(3)}
-                className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/90 via-slate-900 to-cyan-950/90 border-2 border-cyan-400/80 shadow-xl cursor-pointer hover:border-cyan-300 transition-all space-y-2.5 animate-in zoom-in-95"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
-                    <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                    <span>🔐 تصريح فتح الصندوق</span>
-                  </div>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500 text-slate-950 animate-pulse">
-                    إشعار فوري جديد
-                  </span>
-                </div>
-                <p className="text-xs text-white leading-relaxed">
-                  العميل سمح لك بفتح Smart Box. التصريح صالح لمدة 5 دقائق.
-                </p>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400 font-mono pt-1 border-t border-slate-800">
-                  <span>الطلب: #{currentOrder.id}</span>
-                  <span>المندوب: {currentOrder.driverName || 'إسلام عامر'}</span>
-                  <span>الصندوق: {currentOrder.smartBoxId}</span>
-                  <span>الحجيرة: {currentOrder.compartmentId || '01'}</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setDriverStep(3)}
-                className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs sm:text-sm transition-all shadow-lg shadow-cyan-500/20 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>عرض بطاقة تصريح فتح الصندوق</span>
-                <ChevronLeft className="w-4 h-4" />
-              </button>
+          <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/80 max-w-md mx-auto space-y-3">
+            <div className="flex items-center justify-center gap-2 text-amber-400 font-bold text-sm">
+              <Clock className="w-4 h-4 text-amber-400" />
+              <span>جاهز لطلب إذن الفتح من العميل</span>
             </div>
-          ) : (
-            <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/80 max-w-md mx-auto space-y-2">
-              <div className="flex items-center justify-center gap-2 text-amber-400 font-bold text-sm">
-                <Clock className="w-4 h-4 animate-spin text-amber-400" />
-                <span>تم الوصول — في انتظار موافقة العميل</span>
-              </div>
-              <p className="text-xs text-slate-300">
-                تم إشعار العميل بوصولك أمام الصندوق الذكي. لا يمكنك فتح الصندوق إلا بعد موافقة العميل الرسمية.
-              </p>
-            </div>
-          )}
+            <p className="text-xs text-slate-300">
+              اضغط أدناه لإرسال طلب تصريح فتح مؤقت للعميل لفتح الحجيرة {currentOrder.compartmentId || '01'}.
+            </p>
+            <button
+              onClick={handleRequestAccessRetry}
+              disabled={isProcessing}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs sm:text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <KeyRound className="w-4 h-4" />
+              <span>{isProcessing ? 'جاري إرسال الطلب...' : 'طلب إذن فتح الصندوق من العميل'}</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* PHASE 3: Driver Authorization Card */}
-      {driverStep === 3 && (
+      {/* PHASE 3: Driver Authorization Card & OTP Verification */}
+      {currentOrder && currentOrder.status !== 'COMPLETED' && driverStep === 3 && activeAuth && !isTimeoutExpired && (
         <div className="p-6 rounded-2xl bg-slate-900 border border-cyan-500/40 space-y-5 shadow-2xl animate-in fade-in duration-200">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
@@ -553,7 +836,7 @@ export const DriverDeliveryView: React.FC = () => {
               <div>
                 <h4 className="text-base font-black text-white">العميل وافق على فتح الصندوق</h4>
                 <p className="text-xs text-slate-300">
-                  تم اعتماد التفويض المباشر لفتح مزلاج الحجيرة. اضغط أدناه لفتح الصندوق وبدء جلسة الإيداع.
+                  تم اعتماد التفويض المباشر لفتح مزلاج الحجيرة. يرجى التحقق من رمز OTP لفتح الصندوق وبدء جلسة الإيداع.
                 </p>
               </div>
             </div>
@@ -577,20 +860,60 @@ export const DriverDeliveryView: React.FC = () => {
               <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
                 <span className="text-slate-400 text-[10px] block">حالة التصريح</span>
                 <span className="font-mono text-emerald-400 font-bold text-sm">
-                  {activeAuth?.status === 'ACTIVE' ? 'نشط (SINGLE-USE)' : 'نشط ومصرح'}
+                  {activeAuth.otpValidated || currentOrder.status === 'OTP_VALIDATED' ? 'تم التحقق من الرمز ✓' : 'نشط وبانتظار التحقق'}
                 </span>
               </div>
             </div>
 
-            {/* Remaining Authorization Time */}
+            {/* Remaining Authorization Time (Requirements 7 & 8) */}
             <div className="p-3 rounded-xl bg-slate-900/80 border border-amber-900/60 flex items-center justify-between text-xs">
               <span className="text-slate-300 flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
                 الوقت المتبقي لصلاحية التصريح:
               </span>
               <span className="font-mono text-sm sm:text-base text-amber-400 bg-amber-950/90 px-3 py-0.5 rounded-lg border border-amber-800 font-black">
-                {formatTimer(remainingAuthSeconds)}
+                {remainingAuthSeconds > 0 ? formatTimer(remainingAuthSeconds) : 'انتهت الصلاحية'}
               </span>
+            </div>
+
+            {/* OTP Verification Section (Requirements 13 & 14) */}
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 text-slate-300">
+                  <KeyRound className="w-4 h-4 text-cyan-400" />
+                  <span className="font-bold">رمز التحقق الرقمي (OTP) لفتح الحجيرة:</span>
+                </div>
+                {activeAuth.otp && (
+                  <span className="text-[11px] text-slate-400 font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                    رمز المحاكاة التجريبي (Demo OTP): <strong className="text-cyan-400 font-black text-sm tracking-wider">{activeAuth.otp}</strong>
+                  </span>
+                )}
+              </div>
+
+              {!(activeAuth.otpValidated || currentOrder.status === 'OTP_VALIDATED') ? (
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value)}
+                    placeholder="أدخل رمز OTP (6 أرقام)"
+                    className="w-full sm:flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-center tracking-widest text-base focus:outline-none focus:border-cyan-400"
+                  />
+                  <button
+                    onClick={handleValidateOtp}
+                    disabled={isProcessing}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {isProcessing ? 'جاري التحقق...' : 'التحقق من الرمز'}
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-700/60 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>تم التحقق من صحة رمز OTP بنجاح — الصندوق جاهز للفتح</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -601,21 +924,37 @@ export const DriverDeliveryView: React.FC = () => {
             </div>
           )}
 
-          {/* ONE PRIMARY ACTION: Open Box */}
+          {/* ONE PRIMARY ACTION: Open Box (Requires OTP validated & active auth) */}
           <button
             id="driver-open-box-btn"
             onClick={handleOpenBox}
-            disabled={isProcessing || !activeAuth || activeAuth.status !== 'ACTIVE' || remainingAuthSeconds <= 0}
+            disabled={
+              isProcessing ||
+              !activeAuth ||
+              activeAuth.status !== 'ACTIVE' ||
+              remainingAuthSeconds <= 0 ||
+              !(activeAuth.otpValidated || currentOrder.status === 'OTP_VALIDATED')
+            }
             className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm sm:text-base transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Unlock className="w-5 h-5" />
             <span>{isProcessing ? 'جاري التحقق من التصريح وفتح القفل...' : 'فتح الصندوق'}</span>
           </button>
+
+          {/* Quick Security Timeout Simulator for Instant QA Testing */}
+          <div className="pt-2 text-center">
+            <button
+              onClick={() => driverExpireAccessSession(currentOrder.id)}
+              className="text-[11px] text-slate-500 hover:text-rose-400 transition-colors underline cursor-pointer"
+            >
+              [محاكاة الأمان] إنهاء مهلة الـ 5 دقائق لاختبار دورة القفل وإعادة الطلب
+            </button>
+          </div>
         </div>
       )}
 
       {/* PHASE 4: Deposit & Sensors Diagnosis */}
-      {driverStep === 4 && (
+      {currentOrder && currentOrder.status !== 'COMPLETED' && driverStep === 4 && !isTimeoutExpired && (
         <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-5 shadow-2xl">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
@@ -641,33 +980,6 @@ export const DriverDeliveryView: React.FC = () => {
                 <span>وقت الإيداع المتبقي:</span>
                 <span className="font-black text-amber-300 text-base">{formatTimer(remainingSessionSeconds)}</span>
               </div>
-            </div>
-          )}
-
-          {/* Expiration Card when Access Session reaches 00:00 */}
-          {isAccessSessionExpired && (
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-rose-950/80 via-slate-950 to-amber-950/60 border-2 border-rose-500 space-y-3 text-center shadow-2xl animate-in zoom-in-95">
-              <div className="flex items-center justify-center gap-2 text-rose-400 font-black text-base">
-                <Clock className="w-5 h-5 text-rose-400" />
-                <span>⏱️ انتهت مهلة الإيداع</span>
-              </div>
-              <div className="text-sm font-bold text-emerald-400 flex items-center justify-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>تم تأمين الصندوق</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto text-xs font-bold text-slate-300 pt-1">
-                <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>الباب مغلق</span>
-                </div>
-                <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>الصندوق مقفول</span>
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-400 pt-1">
-                انتهت مهلة الـ 5 دقائق وتم قفل الصندوق آلياً. لا يمكن إعادة فتح الصندوق بنفس التصريح.
-              </p>
             </div>
           )}
 
@@ -743,7 +1055,7 @@ export const DriverDeliveryView: React.FC = () => {
 
           {/* Step Controls: Deposit Package & Secure Box */}
           <div className="space-y-3">
-            {currentOrder.status === 'SMART_BOX_OPENED' && !isAccessSessionExpired && (
+            {currentOrder.status === 'SMART_BOX_OPENED' && !isTimeoutExpired && (
               <button
                 onClick={handleDepositPackage}
                 disabled={isProcessing}
@@ -754,7 +1066,7 @@ export const DriverDeliveryView: React.FC = () => {
               </button>
             )}
 
-            {currentOrder.status === 'PACKAGE_DEPOSITED' && !isAccessSessionExpired && (
+            {currentOrder.status === 'PACKAGE_DEPOSITED' && !isTimeoutExpired && (
               <div className="space-y-3 pt-1 animate-in fade-in">
                 <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-center space-y-1">
                   <span className="text-emerald-400 font-black text-sm flex items-center justify-center gap-2">
@@ -784,8 +1096,8 @@ export const DriverDeliveryView: React.FC = () => {
                 <button
                   id="driver-complete-delivery-btn"
                   onClick={handleCompleteDelivery}
-                  disabled={isProcessing}
-                  className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm sm:text-base transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer"
+                  disabled={isProcessing || (hardwareSim.weightKg <= 0 && !currentOrder.proofOfDelivery)}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-sm sm:text-base transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Camera className="w-5 h-5" />
                   <span>
@@ -801,7 +1113,7 @@ export const DriverDeliveryView: React.FC = () => {
       )}
 
       {/* PHASE 5: Delivery Completed & Payout Credited */}
-      {driverStep === 5 && (
+      {currentOrder && (driverStep === 5 || currentOrder.status === 'COMPLETED') && (
         <div className="p-6 rounded-2xl bg-slate-900 border border-emerald-500/40 space-y-5 text-center shadow-2xl">
           <div className="w-16 h-16 rounded-2xl bg-emerald-950/80 border border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-950/60">
             <CheckCircle2 className="w-8 h-8" />
@@ -836,8 +1148,9 @@ export const DriverDeliveryView: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setDriverStep(1)}
-            className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+            id="driver-return-to-assigned-btn"
+            onClick={handleReturnToAssignedOrders}
+            className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer"
           >
             العودة لقائمة الطلبات المسندة
           </button>

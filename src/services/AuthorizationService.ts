@@ -59,6 +59,74 @@ export class MockAuthorizationService implements IAuthorizationService {
     return [...this.authorizations];
   }
 
+  async createAccessRequest(params: {
+    customerId: string;
+    customerName: string;
+    orderId: string;
+    driverId?: string;
+    driverName?: string;
+    smartBoxId: string;
+    compartmentId: string;
+    reason?: string;
+    isRetry?: boolean;
+  }): Promise<TemporaryAccessAuthorization> {
+    // FIX 2: Check for existing PENDING request matching exact parameters
+    const existingPending = this.authorizations.find(
+      (a) =>
+        a.status === 'PENDING' &&
+        a.orderId === params.orderId &&
+        a.customerId === params.customerId &&
+        (!params.driverId || !a.driverId || a.driverId === params.driverId) &&
+        a.smartBoxId === params.smartBoxId &&
+        a.compartmentId === params.compartmentId
+    );
+    if (existingPending) {
+      return existingPending;
+    }
+
+    const newAuth: TemporaryAccessAuthorization = {
+      id: `AUTH-REQ-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      customerId: params.customerId,
+      customerName: params.customerName,
+      orderId: params.orderId,
+      driverId: params.driverId,
+      driverName: params.driverName,
+      smartBoxId: params.smartBoxId,
+      compartmentId: params.compartmentId,
+      otp: '', // Not usable until approved
+      status: 'PENDING',
+      createdAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      expiresAt: '',
+      isGeofenceRequired: true,
+      isCameraPODRequired: true,
+      isLoadCellVerified: true,
+      geofenceRadiusMeters: 20,
+      delegationType: 'DELIVERY',
+      otpValidated: false,
+      isOtpConsumed: false,
+      requestReason: params.reason || (params.isRetry ? 'انتهت مهلة الإيداع السابقة' : undefined),
+      isRetry: Boolean(params.isRetry),
+    };
+
+    this.authorizations.unshift(newAuth);
+    this.notify();
+
+    await auditService.recordEvent({
+      actor: params.driverName || 'المندوب الميداني',
+      actorRole: 'DRIVER',
+      orderId: params.orderId,
+      smartBoxId: params.smartBoxId,
+      compartmentId: params.compartmentId,
+      action: 'ACCESS_REQUESTED',
+      result: 'SUCCESS',
+      details: params.isRetry
+        ? 'طلب المندوب إذن فتح جديد للصندوق بعد انتهاء المهلة السابقة'
+        : 'طلب المندوب إذن فتح الصندوق الذكي',
+    });
+
+    return newAuth;
+  }
+
   async createAuthorization(params: {
     customerId: string;
     customerName: string;
@@ -70,9 +138,10 @@ export class MockAuthorizationService implements IAuthorizationService {
     expiresInMinutes?: number;
     delegationType?: 'DELIVERY' | 'FAMILY' | 'VISITOR';
     isGeofenceRequired?: boolean;
+    isRetry?: boolean;
   }): Promise<TemporaryAccessAuthorization> {
     const isDelivery = !params.delegationType || params.delegationType === 'DELIVERY';
-    // Strict 5-minute security window for delivery authorizations
+    // Strict independent 5-minute security window for delivery authorizations
     const durationMins = isDelivery
       ? DELIVERY_AUTHORIZATION_DURATION_MINUTES
       : (params.expiresInMinutes || DELIVERY_AUTHORIZATION_DURATION_MINUTES);
@@ -82,8 +151,13 @@ export class MockAuthorizationService implements IAuthorizationService {
     const expiresAtMs = nowMs + durationMins * 60 * 1000;
     const expiresAtDate = new Date(expiresAtMs);
 
+    // If a pending request exists for this order, resolve it
+    const existingPending = this.authorizations.find(
+      (a) => a.orderId === params.orderId && a.status === 'PENDING'
+    );
+
     const newAuth: TemporaryAccessAuthorization = {
-      id: `AUTH-${Date.now()}`,
+      id: `AUTH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
       customerId: params.customerId,
       customerName: params.customerName,
       orderId: params.orderId,
@@ -103,9 +177,15 @@ export class MockAuthorizationService implements IAuthorizationService {
       delegationType: params.delegationType || 'DELIVERY',
       otpValidated: false,
       isOtpConsumed: false,
+      isRetry: params.isRetry ?? existingPending?.isRetry,
+      requestReason: existingPending?.requestReason,
     };
 
-    this.authorizations.unshift(newAuth);
+    if (existingPending) {
+      this.authorizations = this.authorizations.map((a) => (a.id === existingPending.id ? newAuth : a));
+    } else {
+      this.authorizations.unshift(newAuth);
+    }
     this.notify();
 
     // Audit log - NEVER log the raw OTP value
@@ -115,19 +195,74 @@ export class MockAuthorizationService implements IAuthorizationService {
       orderId: params.orderId,
       smartBoxId: params.smartBoxId,
       compartmentId: params.compartmentId,
-      action: 'AUTHORIZATION_CREATED',
+      action: 'ACCESS_AUTHORIZED',
       result: 'SUCCESS',
-      details: `تم إنشاء تصريح مؤقت برمز OTP مشفر صالح لمدة ${durationMins} دقائق للمندوب ${params.driverName || 'المعين'}`,
+      details: `تم منح إذن فتح الصندوق وإصدار رمز رقمي جديد صالح لمدة ${durationMins} دقائق للمندوب ${params.driverName || 'المعين'}`,
     });
 
     return newAuth;
   }
 
-  async generateOTPForEligibleDelivery(orderId: string, driverId: string): Promise<string | null> {
+  async rejectAccessRequest(orderId: string, reason?: string): Promise<boolean> {
     const auth = this.authorizations.find(
+      (a) => a.orderId === orderId && (a.status === 'PENDING' || a.status === 'ACTIVE')
+    );
+    if (!auth) return false;
+    auth.status = 'REJECTED';
+    this.notify();
+
+    await auditService.recordEvent({
+      actor: auth.customerName || 'العميل',
+      actorRole: 'CUSTOMER',
+      orderId: auth.orderId,
+      smartBoxId: auth.smartBoxId,
+      compartmentId: auth.compartmentId,
+      action: 'ACCESS_DENIED',
+      result: 'WARNING',
+      details: reason || 'رفض العميل السماح بفتح الصندوق الذكي',
+    });
+
+    return true;
+  }
+
+  async expireAuthorization(orderId: string): Promise<boolean> {
+    let hasChanged = false;
+    let smartBoxId = 'BOX-102';
+    let compartmentId = '01';
+
+    this.authorizations.forEach((a) => {
+      if (a.orderId === orderId && a.status === 'ACTIVE') {
+        a.status = 'EXPIRED';
+        a.isOtpConsumed = true;
+        hasChanged = true;
+        smartBoxId = a.smartBoxId || smartBoxId;
+        compartmentId = a.compartmentId || compartmentId;
+      }
+    });
+
+    if (!hasChanged) return false;
+    this.notify();
+
+    await auditService.recordEvent({
+      actor: 'نظام الصندوق الذكي',
+      actorRole: 'ADMIN',
+      orderId,
+      smartBoxId,
+      compartmentId,
+      action: 'ACCESS_EXPIRED',
+      result: 'FAILURE',
+      details: 'انتهت مهلة السماح بفتح الصندوق (5 دقائق) وتم إلغاء صلاحية الرمز وقفل الصندوق آلياً',
+    });
+
+    return true;
+  }
+
+  async generateOTPForEligibleDelivery(orderId: string, driverId: string): Promise<string | null> {
+    const activeCandidates = this.authorizations.filter(
       (a) => a.orderId === orderId && (!a.driverId || a.driverId === driverId) && a.status === 'ACTIVE'
     );
-    if (!auth) return null;
+    if (activeCandidates.length === 0) return null;
+    const auth = activeCandidates.sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
 
     // Check expiration timestamp
     if (auth.expiresAtTimestamp && Date.now() > auth.expiresAtTimestamp) {
@@ -174,12 +309,60 @@ export class MockAuthorizationService implements IAuthorizationService {
    * 10. OTP has not already been consumed (single-use)
    */
   async validateAccess(params: ValidateAccessParams): Promise<ValidationResult> {
-    // 1. Authorization exists
-    const auth = this.authorizations.find(
-      (a) => a.orderId === params.orderId && a.smartBoxId === params.smartBoxId
-    );
+    // 1. Authorization exists and is ACTIVE
+    let auth: TemporaryAccessAuthorization | undefined;
+
+    if (params.authId) {
+      auth = this.authorizations.find(
+        (a) =>
+          a.id === params.authId &&
+          a.orderId === params.orderId &&
+          (!params.driverId || !a.driverId || a.driverId === params.driverId) &&
+          (!params.customerId || a.customerId === params.customerId) &&
+          (!params.smartBoxId || a.smartBoxId === params.smartBoxId) &&
+          (!params.compartmentId || a.compartmentId === params.compartmentId) &&
+          a.status === 'ACTIVE'
+      );
+    }
 
     if (!auth) {
+      const activeCandidates = this.authorizations.filter(
+        (a) =>
+          a.orderId === params.orderId &&
+          (!params.driverId || !a.driverId || a.driverId === params.driverId) &&
+          (!params.customerId || a.customerId === params.customerId) &&
+          (!params.smartBoxId || a.smartBoxId === params.smartBoxId) &&
+          (!params.compartmentId || a.compartmentId === params.compartmentId) &&
+          a.status === 'ACTIVE'
+      );
+      if (activeCandidates.length > 0) {
+        auth = activeCandidates.sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
+      }
+    }
+
+    if (!auth) {
+      const expiredAuth = this.authorizations.find(
+        (a) => a.orderId === params.orderId && a.smartBoxId === params.smartBoxId && a.status === 'EXPIRED'
+      );
+      if (expiredAuth) {
+        return {
+          granted: false,
+          reason: 'انتهت صلاحية رمز الدخول المؤقت وتم قفل الصندوق.',
+          errorCode: 'EXPIRED',
+        };
+      }
+
+      const pendingAuth = this.authorizations.find(
+        (a) => a.orderId === params.orderId && a.smartBoxId === params.smartBoxId && a.status === 'PENDING'
+      );
+      if (pendingAuth) {
+        return {
+          granted: false,
+          reason: 'طلب الفتح لا يزال معلقاً بانتظار موافقة العميل.',
+          errorCode: 'INVALID_STATUS',
+        };
+      }
+
       await auditService.recordEvent({
         actor: `المندوب (${params.driverId})`,
         actorRole: 'DRIVER',
@@ -456,11 +639,54 @@ export class MockAuthorizationService implements IAuthorizationService {
   }
 
   /**
-   * Marks authorization as USED only after physical access & lock securement is complete
+   * Marks authorization as USED only after physical access & lock securement is complete.
+   * FIX 3: Marks ONLY the current delivery cycle authorization, never modifying old expired authorizations.
    */
-  async completeAccess(orderId: string): Promise<boolean> {
-    const auth = this.authorizations.find((a) => a.orderId === orderId);
-    if (!auth) return false;
+  async completeAccess(
+    orderId: string,
+    authId?: string,
+    criteria?: {
+      customerId?: string;
+      driverId?: string;
+      smartBoxId?: string;
+      compartmentId?: string;
+    }
+  ): Promise<boolean> {
+    const now = Date.now();
+    let auth: TemporaryAccessAuthorization | undefined;
+
+    // 1. authorizationId associated with the current delivery/access session
+    if (authId) {
+      auth = this.authorizations.find(
+        (a) =>
+          a.id === authId &&
+          a.status === 'ACTIVE' &&
+          a.otpValidated === true &&
+          !a.usedAt &&
+          (!a.expiresAtTimestamp || a.expiresAtTimestamp > now)
+      );
+    }
+
+    // 2. otherwise the current ACTIVE authorization with otpValidated === true matching exact criteria
+    if (!auth) {
+      const candidates = this.authorizations.filter(
+        (a) =>
+          a.orderId === orderId &&
+          a.status === 'ACTIVE' &&
+          a.otpValidated === true &&
+          (!criteria?.driverId || !a.driverId || a.driverId === criteria.driverId) &&
+          (!criteria?.customerId || a.customerId === criteria.customerId) &&
+          (!criteria?.smartBoxId || a.smartBoxId === criteria.smartBoxId) &&
+          (!criteria?.compartmentId || a.compartmentId === criteria.compartmentId) &&
+          (!a.expiresAtTimestamp || a.expiresAtTimestamp > now) &&
+          !a.usedAt
+      );
+      if (candidates.length > 0) {
+        auth = candidates.sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
+      }
+    }
+
+    if (!auth || auth.status !== 'ACTIVE' || !auth.otpValidated) return false;
     auth.status = 'USED';
     auth.usedAt = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
     this.notify();
@@ -480,20 +706,88 @@ export class MockAuthorizationService implements IAuthorizationService {
   }
 
   /**
-   * Verifies if physical access is authorized for the box/compartment
+   * Verifies if physical access is authorized for the box/compartment.
+   * Absolute OTP Gate: Access is authorized ONLY when status is ACTIVE and otpValidated === true.
    */
-  async isAccessAuthorized(boxId: string, compartmentId: string, orderId: string): Promise<boolean> {
-    const auth = this.authorizations.find(
-      (a) => a.orderId === orderId && a.smartBoxId === boxId && a.compartmentId === compartmentId
+  async isAccessAuthorized(
+    boxId: string,
+    compartmentId: string,
+    orderId: string,
+    driverId?: string,
+    customerId?: string
+  ): Promise<boolean> {
+    const now = Date.now();
+    const candidateAuths = this.authorizations.filter(
+      (a) =>
+        a.orderId === orderId &&
+        a.smartBoxId === boxId &&
+        a.compartmentId === compartmentId &&
+        a.status === 'ACTIVE' &&
+        (!driverId || !a.driverId || a.driverId === driverId) &&
+        (!customerId || a.customerId === customerId) &&
+        (!a.expiresAtTimestamp || a.expiresAtTimestamp > now) &&
+        !a.usedAt &&
+        a.otpValidated === true
     );
-    if (!auth) return false;
-    if (auth.status === 'REVOKED' || auth.status === 'EXPIRED' || auth.status === 'USED') return false;
-    if (auth.expiresAtTimestamp && Date.now() > auth.expiresAtTimestamp) {
-      auth.status = 'EXPIRED';
-      this.notify();
-      return false;
+
+    if (candidateAuths.length === 0) return false;
+    const auth = candidateAuths.sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
+    // CRITICAL SECURITY REQUIREMENT (FIX 1): Absolute OTP Gate
+    return auth.otpValidated === true && auth.status === 'ACTIVE';
+  }
+
+  getCurrentAuthorization(params: {
+    orderId: string;
+    driverId?: string;
+    customerId?: string;
+    smartBoxId?: string;
+    compartmentId?: string;
+    authId?: string;
+  }): TemporaryAccessAuthorization | undefined {
+    const now = Date.now();
+    if (params.authId) {
+      const byId = this.authorizations.find(
+        (a) =>
+          a.id === params.authId &&
+          a.status !== 'EXPIRED' &&
+          a.status !== 'USED' &&
+          !a.usedAt &&
+          (!a.expiresAtTimestamp || a.expiresAtTimestamp > now)
+      );
+      if (byId) return byId;
     }
-    return auth.status === 'ACTIVE' || auth.otpValidated === true;
+
+    // Latest active authorization matching exact criteria
+    const activeAuths = this.authorizations.filter(
+      (a) =>
+        a.orderId === params.orderId &&
+        a.status === 'ACTIVE' &&
+        (!params.driverId || !a.driverId || a.driverId === params.driverId) &&
+        (!params.customerId || a.customerId === params.customerId) &&
+        (!params.smartBoxId || a.smartBoxId === params.smartBoxId) &&
+        (!params.compartmentId || a.compartmentId === params.compartmentId) &&
+        (!a.expiresAtTimestamp || a.expiresAtTimestamp > now) &&
+        !a.usedAt
+    );
+    if (activeAuths.length > 0) {
+      return activeAuths.sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
+    }
+
+    // Check pending request for this cycle
+    const pendingAuths = this.authorizations.filter(
+      (a) =>
+        a.orderId === params.orderId &&
+        a.status === 'PENDING' &&
+        (!params.driverId || !a.driverId || a.driverId === params.driverId) &&
+        (!params.customerId || a.customerId === params.customerId) &&
+        (!params.smartBoxId || a.smartBoxId === params.smartBoxId) &&
+        (!params.compartmentId || a.compartmentId === params.compartmentId)
+    );
+    if (pendingAuths.length > 0) {
+      return pendingAuths[0];
+    }
+
+    return undefined;
   }
 
   async revokeAuthorization(authId: string, reason: string): Promise<boolean> {
@@ -515,8 +809,38 @@ export class MockAuthorizationService implements IAuthorizationService {
     return true;
   }
 
-  async getAuthorizationByOrder(orderId: string): Promise<TemporaryAccessAuthorization | undefined> {
-    return this.authorizations.find((a) => a.orderId === orderId);
+  async getAuthorizationByOrder(
+    orderId: string,
+    criteria?: {
+      customerId?: string;
+      driverId?: string;
+      smartBoxId?: string;
+      compartmentId?: string;
+    }
+  ): Promise<TemporaryAccessAuthorization | undefined> {
+    const now = Date.now();
+    const active = this.authorizations.find(
+      (a) =>
+        a.orderId === orderId &&
+        a.status === 'ACTIVE' &&
+        (!a.expiresAtTimestamp || a.expiresAtTimestamp > now) &&
+        (!criteria?.driverId || !a.driverId || a.driverId === criteria.driverId) &&
+        (!criteria?.customerId || a.customerId === criteria.customerId) &&
+        (!criteria?.smartBoxId || a.smartBoxId === criteria.smartBoxId) &&
+        (!criteria?.compartmentId || a.compartmentId === criteria.compartmentId)
+    );
+    if (active) return active;
+
+    const pending = this.authorizations.find(
+      (a) =>
+        a.orderId === orderId &&
+        a.status === 'PENDING' &&
+        (!criteria?.driverId || !a.driverId || a.driverId === criteria.driverId) &&
+        (!criteria?.customerId || a.customerId === criteria.customerId) &&
+        (!criteria?.smartBoxId || a.smartBoxId === criteria.smartBoxId) &&
+        (!criteria?.compartmentId || a.compartmentId === criteria.compartmentId)
+    );
+    return pending || undefined;
   }
 
   async getAuthorizationsForBox(boxId: string): Promise<TemporaryAccessAuthorization[]> {

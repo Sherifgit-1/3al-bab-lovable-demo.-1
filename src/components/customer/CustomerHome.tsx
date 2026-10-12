@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   Box,
   Truck,
@@ -35,6 +36,9 @@ export const CustomerHome: React.FC = () => {
     setSelectedMerchantProfileId,
     openMerchantChat,
   } = useApp();
+
+  const { currentUser } = useAuth();
+  const currentCustomerId = currentUser?.role === 'CUSTOMER' ? currentUser.id : currentUser?.id;
 
   const getStatusText = (status: string) => {
     switch (status) {
@@ -127,12 +131,9 @@ export const CustomerHome: React.FC = () => {
       {(() => {
         const terminalStatuses = ['COMPLETED', 'CANCELLED', 'REJECTED', 'DELIVERY_FAILED'];
         const currentOrder =
-          orders.find(
-            (o) =>
-              (o.customerId === 'cust-1' || o.id === activeOrder?.id || !o.customerId) &&
-              !terminalStatuses.includes(o.status)
-          ) ||
-          (activeOrder && !terminalStatuses.includes(activeOrder.status) ? activeOrder : null);
+          (activeOrder && activeOrder.customerId === currentCustomerId && !terminalStatuses.includes(activeOrder.status)
+            ? activeOrder
+            : orders.find((o) => o.customerId === currentCustomerId && !terminalStatuses.includes(o.status))) || null;
 
         if (currentOrder) {
           return (

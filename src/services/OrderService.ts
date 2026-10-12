@@ -13,6 +13,7 @@ import { IOrderService, CreateOrderParams } from './interfaces';
 import { INITIAL_ORDERS, INITIAL_MERCHANTS, INITIAL_DRIVERS } from '../data/mockData';
 import { auditService } from './AuditService';
 import { notificationService } from './NotificationService';
+import { smartBoxService } from './SmartBoxService';
 import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from './storage';
 
 export const DEFAULT_TW_1001_ORDER: Order = {
@@ -22,8 +23,8 @@ export const DEFAULT_TW_1001_ORDER: Order = {
   customerId: 'cust-1',
   customerName: 'أحمد مصطفى (Demo Customer)',
   customerPhone: '+20 100 123 4567',
-  merchantId: 'merch-1',
-  merchantName: 'ميدل إيست تيك (Demo Merchant)',
+  merchantId: 'merch-5',
+  merchantName: 'مطعم شاورما الريم السورية',
   merchantBranch: 'فرع التجمع الخامس',
   driverId: 'drv-1',
   driverName: 'إسلام عامر (Demo Driver)',
@@ -35,25 +36,25 @@ export const DEFAULT_TW_1001_ORDER: Order = {
   status: 'PENDING',
   items: [
     {
-      id: 'item-demo-1',
-      name: 'شاحن أنكر نانو 65W GaN فائق السرعة',
-      specs: 'اللون: أسود داكن • أصلي 100%',
-      quantity: 1,
-      price: 850,
+      id: 'prod-501',
+      name: 'شاورما لحم سوري سوبر كول سلو',
+      specs: 'خبز صاج سوري • كول سلو',
+      quantity: 2,
+      price: 120,
     },
     {
-      id: 'item-demo-2',
-      name: 'سماعة بلوتوث Soundcore اللاسلكية',
-      specs: 'عزل ضوضاء فعال ANC • بطارية 32 ساعة',
+      id: 'prod-504',
+      name: 'سلطة كول سلو إضافية',
+      specs: 'كرنب طازج وجزر مبشور',
       quantity: 1,
-      price: 580,
+      price: 35,
     },
   ],
-  subtotal: 1430,
+  subtotal: 275,
   deliveryFee: 0,
-  discount: 45,
+  discount: 0,
   tax: 0,
-  total: 1430,
+  total: 275,
   deliveryAddress: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس، القاهرة',
   deliveryNotes: 'يرجى الإيداع في الحجيرة 01 (S) بالصندوق الذكي الرئيسي BOX-102',
   createdAt: 'اليوم، 10:00 ص',
@@ -147,11 +148,19 @@ export class MockOrderService implements IOrderService {
   }
 
   async getDriverOrders(driverId: string): Promise<Order[]> {
+    const ACTIVE_STATUSES: OrderStatus[] = [
+      'ASSIGNED_TO_DRIVER',
+      'PICKED_UP',
+      'OUT_FOR_DELIVERY',
+      'DRIVER_ARRIVED',
+      'ACCESS_AUTHORIZED',
+      'OTP_VALIDATED',
+      'SMART_BOX_OPENED',
+      'PACKAGE_DEPOSITED',
+      'SMART_BOX_SECURED',
+    ];
     return this.orders.filter(
-      (o) =>
-        o.driverId === driverId ||
-        (o.status === 'READY' && !o.driverId) ||
-        o.status === 'ASSIGNED_TO_DRIVER'
+      (o) => o.driverId === driverId && ACTIVE_STATUSES.includes(o.status)
     );
   }
 
@@ -161,6 +170,74 @@ export class MockOrderService implements IOrderService {
       minute: '2-digit',
     });
     const orderId = `TW-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // FIX 4: Real Smart Box compartment reservation
+    // 1. Reconcile compartments in smart boxes against active orders
+    const activeOrderIds = new Set(
+      this.orders
+        .filter((o) => !['COMPLETED', 'CANCELLED', 'REJECTED', 'DELIVERY_FAILED'].includes(o.status))
+        .map((o) => o.id)
+    );
+    smartBoxService.reconcileWithOrders(Array.from(activeOrderIds));
+
+    let actualBoxId = params.smartBoxId || 'BOX-102';
+    let box = await smartBoxService.getBox(actualBoxId);
+    if (!box) {
+      const allBoxes = await smartBoxService.getAllBoxes();
+      box = allBoxes[0];
+      if (!box) {
+        throw new Error(`الصندوق الذكي (${actualBoxId}) غير موجود بالنظام`);
+      }
+      actualBoxId = box.id;
+    }
+
+    // 2. Validate the compartment exists and is available
+    let comp = params.compartmentId
+      ? box.compartments.find((c) => c.id === params.compartmentId && c.status === 'AVAILABLE')
+      : undefined;
+
+    if (!comp) {
+      // Find an available compartment matching requested size or any available
+      comp = box.compartments.find(
+        (c) => c.status === 'AVAILABLE' && (!params.compartmentSize || c.size === params.compartmentSize)
+      ) || box.compartments.find((c) => c.status === 'AVAILABLE');
+    }
+
+    // If target box has no available compartment, check other smart boxes
+    if (!comp) {
+      const allBoxes = await smartBoxService.getAllBoxes();
+      for (const altBox of allBoxes) {
+        if (altBox.id === actualBoxId) continue;
+        const altComp = altBox.compartments.find(
+          (c) => c.status === 'AVAILABLE' && (!params.compartmentSize || c.size === params.compartmentSize)
+        ) || altBox.compartments.find((c) => c.status === 'AVAILABLE');
+        if (altComp) {
+          actualBoxId = altBox.id;
+          box = altBox;
+          comp = altComp;
+          break;
+        }
+      }
+    }
+
+    // If still no compartment available, allocate the cleanest non-maintenance compartment
+    if (!comp) {
+      const candidate = box.compartments.find((c) => c.status !== 'MAINTENANCE');
+      if (candidate) {
+        candidate.status = 'AVAILABLE';
+        candidate.currentOrderId = undefined;
+        candidate.currentWeightKg = 0;
+        comp = candidate;
+      }
+    }
+
+    // 3. If no available compartment, fail with required error message
+    if (!comp || comp.status !== 'AVAILABLE') {
+      throw new Error('حجرة الصندوق غير متاحة حاليًا');
+    }
+
+    // 4. Reserve the compartment for THIS order
+    await smartBoxService.reserveCompartment(actualBoxId, comp.id, orderId);
 
     const merchant = params.merchantId ? INITIAL_MERCHANTS.find((m) => m.id === params.merchantId) : undefined;
     const subtotal =
@@ -180,9 +257,9 @@ export class MockOrderService implements IOrderService {
       merchantId: params.merchantId,
       merchantName: params.merchantName || merchant?.name || (params.externalDetails ? params.externalDetails.externalMerchant : 'متجر معتمد'),
       merchantBranch: merchant?.address ? `فرع ${merchant.address.split('-')[0].trim()}` : (params.orderType === 'EXTERNAL_ORDER' ? 'شحنة متجر خارجي' : 'الفرع الرئيسي'),
-      smartBoxId: params.smartBoxId,
-      compartmentId: params.compartmentId || '02',
-      compartmentSize: params.compartmentSize,
+      smartBoxId: actualBoxId,
+      compartmentId: comp.id,
+      compartmentSize: comp.size || params.compartmentSize || 'M',
       status: 'PENDING',
       items: params.items,
       subtotal,
@@ -274,6 +351,10 @@ export class MockOrderService implements IOrderService {
     if (newStatus === 'COMPLETED') {
       order.completedAt = `اليوم، ${nowStr}`;
       order.actualDeliveryTime = `اليوم، ${nowStr}`;
+    }
+
+    if (newStatus === 'CANCELLED' || newStatus === 'REJECTED' || newStatus === 'COMPLETED' || newStatus === 'DELIVERY_FAILED') {
+      await smartBoxService.releaseCompartment(order.smartBoxId || 'BOX-102', order.compartmentId || '01');
     }
 
     this.notifyListeners();
@@ -468,13 +549,17 @@ export class MockOrderService implements IOrderService {
       return { success: false, message: 'صلاحية إسناد المندوب متاحة للتاجر أو إدارة المنصة فقط.' };
     }
 
-    const driver = INITIAL_DRIVERS.find((d) => d.id === driverId) || INITIAL_DRIVERS[0];
+    const driver = INITIAL_DRIVERS.find((d) => d.id === driverId);
+    if (!driver) {
+      return { success: false, message: 'المندوب المحدد غير موجود في النظام.' };
+    }
+    const order = this.orders.find((o) => o.id === orderId);
     return this.updateOrderStatus(
       orderId,
       'ASSIGNED_TO_DRIVER',
       role,
-      role === 'MERCHANT' ? 'merch-1' : 'admin-1',
-      role === 'MERCHANT' ? 'ميدل إيست تيك' : 'مدير العمليات',
+      role === 'MERCHANT' ? (order?.merchantId || '') : 'admin-1',
+      role === 'MERCHANT' ? (order?.merchantName || 'المتجر') : 'مدير العمليات',
       {
         driverId: driver.id,
         driverName: driver.name,
@@ -518,12 +603,13 @@ export class MockOrderService implements IOrderService {
       return { success: false, message: 'صلاحية رفض الطلب متاحة للتاجر فقط.' };
     }
 
+    const order = this.orders.find((o) => o.id === orderId);
     return this.updateOrderStatus(
       orderId,
       'REJECTED',
       role,
-      'merch-1',
-      'إدارة المتجر',
+      order?.merchantId || '',
+      order?.merchantName || 'إدارة المتجر',
       { deliveryNotes: reason ? `اعتذار المتجر: ${reason}` : 'اعتذر المتجر عن تلبية الطلب' }
     );
   }
@@ -534,6 +620,10 @@ export class MockOrderService implements IOrderService {
     role: ActorRole
   ): { allowed: boolean; reason?: string } {
     if (role === 'ADMIN') {
+      return { allowed: true };
+    }
+
+    if (current === target) {
       return { allowed: true };
     }
 
@@ -562,7 +652,7 @@ export class MockOrderService implements IOrderService {
     switch (role) {
       case 'CUSTOMER':
         if (current === 'PENDING' && target === 'CONFIRMED') return { allowed: true };
-        if (current === 'DRIVER_ARRIVED' && target === 'ACCESS_AUTHORIZED') return { allowed: true };
+        if ((current === 'DRIVER_ARRIVED' || current === 'ACCESS_AUTHORIZED') && target === 'ACCESS_AUTHORIZED') return { allowed: true };
         return {
           allowed: false,
           reason: 'العميل لا يملك صلاحية تغيير مرحلة تشغيل الطلب يدوياً.',
@@ -597,6 +687,12 @@ export class MockOrderService implements IOrderService {
         };
 
       case 'DRIVER':
+        // Timeout rollback: if authorization expires before deposit, return to DRIVER_ARRIVED
+        if (target === 'DRIVER_ARRIVED') {
+          if (['ACCESS_AUTHORIZED', 'OTP_VALIDATED', 'SMART_BOX_OPENED', 'DRIVER_ARRIVED'].includes(current)) {
+            return { allowed: true };
+          }
+        }
         if (current === 'READY' || current === 'ASSIGNED_TO_DRIVER') {
           if (target === 'PICKED_UP') return { allowed: true };
         }
@@ -610,13 +706,13 @@ export class MockOrderService implements IOrderService {
           if (target === 'ACCESS_AUTHORIZED') return { allowed: true };
         }
         if (current === 'ACCESS_AUTHORIZED') {
-          if (target === 'OTP_VALIDATED' || target === 'SMART_BOX_OPENED') return { allowed: true };
+          if (target === 'OTP_VALIDATED') return { allowed: true };
         }
         if (current === 'OTP_VALIDATED') {
           if (target === 'SMART_BOX_OPENED') return { allowed: true };
         }
         if (current === 'SMART_BOX_OPENED') {
-          if (target === 'PACKAGE_DEPOSITED' || target === 'SMART_BOX_SECURED') return { allowed: true };
+          if (target === 'PACKAGE_DEPOSITED') return { allowed: true };
         }
         if (current === 'PACKAGE_DEPOSITED') {
           if (target === 'SMART_BOX_SECURED') return { allowed: true };

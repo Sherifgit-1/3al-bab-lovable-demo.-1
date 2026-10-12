@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth, DEMO_MERCHANT_OPTIONS } from '../../context/AuthContext';
 import {
   Store,
   Clock,
@@ -30,6 +31,7 @@ import {
   Send,
   FileText,
   Camera,
+  Sparkles,
 } from 'lucide-react';
 import { getQuickRepliesForMerchant } from '../../utils/quickReplies';
 
@@ -53,27 +55,56 @@ export const MerchantDashboard: React.FC = () => {
     confirmOrderByMerchant,
   } = useApp();
 
-  const currentMerchant = merchants[0]; // Middle East Tech
+  const { currentUser, currentDemoMerchantId, switchDemoMerchant, isDemoMode } = useAuth();
+  const currentMerchantId =
+    (currentUser?.role === 'MERCHANT' ? currentUser.id : null) || currentDemoMerchantId;
+  const currentMerchant = currentMerchantId ? merchants.find((m) => m.id === currentMerchantId) : undefined;
+  const currentOption =
+    DEMO_MERCHANT_OPTIONS.find((opt) => opt.id === currentMerchantId) || DEMO_MERCHANT_OPTIONS[0];
+
+  const merchantConversations = currentMerchant ? conversations.filter((c) => c.merchantId === currentMerchant.id) : [];
   const convMerchant =
-    merchants.find((m) => m.id === activeConversation?.merchantId) ||
+    (activeConversation?.merchantId ? merchants.find((m) => m.id === activeConversation.merchantId) : undefined) ||
     currentMerchant;
-  const merchantQuickReplies = getQuickRepliesForMerchant(convMerchant);
+  const merchantQuickReplies = convMerchant ? getQuickRepliesForMerchant(convMerchant) : [];
 
   const [dashboardTab, setDashboardTab] = useState<'PIPELINE' | 'CHATS'>('PIPELINE');
   const [merchantReplyText, setMerchantReplyText] = useState('');
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('عدم توفر الصنف في المخزون حالياً');
 
+  // Automatically keep active conversation within current merchant's scope
+  React.useEffect(() => {
+    if (currentMerchant && activeConversation && activeConversation.merchantId !== currentMerchant.id) {
+      if (merchantConversations.length > 0) {
+        setActiveConversation(merchantConversations[0]);
+      }
+    }
+  }, [currentMerchant?.id, activeConversation?.merchantId, merchantConversations, setActiveConversation]);
+
+  if (!currentMerchant) {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-8 text-center rounded-3xl bg-slate-900/90 border border-slate-800 text-slate-300 space-y-4 shadow-xl">
+        <Store className="w-12 h-12 text-slate-500 mx-auto" />
+        <h3 className="text-lg font-bold text-white font-['Cairo']">لا يوجد متجر محدد حالياً</h3>
+        <p className="text-xs text-slate-400">
+          يرجى تسجيل الدخول بحساب تاجر صالح أو اختيار متجر لعرض لوحة العمليات والطلبات.
+        </p>
+      </div>
+    );
+  }
+
   const activeConvMessages = chatMessages.filter(
     (m) => m.conversationId === activeConversation?.id
   );
 
-  // Filter orders by status
-  const pendingOrders = orders.filter((o) => o.status === 'PENDING');
-  const acceptedOrders = orders.filter((o) => o.status === 'ACCEPTED');
-  const prepOrders = orders.filter((o) => o.status === 'PREPARING');
-  const readyOrders = orders.filter((o) => o.status === 'READY');
-  const inDeliveryOrders = orders.filter((o) =>
+  // FIX 5: Strictly filter orders for THIS merchant only
+  const merchantOrders = orders.filter((o) => o.merchantId === currentMerchant.id);
+  const pendingOrders = merchantOrders.filter((o) => o.status === 'PENDING');
+  const acceptedOrders = merchantOrders.filter((o) => o.status === 'ACCEPTED');
+  const prepOrders = merchantOrders.filter((o) => o.status === 'PREPARING');
+  const readyOrders = merchantOrders.filter((o) => o.status === 'READY');
+  const inDeliveryOrders = merchantOrders.filter((o) =>
     [
       'ASSIGNED_TO_DRIVER',
       'PICKED_UP',
@@ -86,8 +117,8 @@ export const MerchantDashboard: React.FC = () => {
       'SMART_BOX_SECURED',
     ].includes(o.status)
   );
-  const completedOrders = orders.filter((o) => o.status === 'COMPLETED');
-  const rejectedOrders = orders.filter(
+  const completedOrders = merchantOrders.filter((o) => o.status === 'COMPLETED');
+  const rejectedOrders = merchantOrders.filter(
     (o) => o.status === 'REJECTED' || o.status === 'CANCELLED'
   );
 
@@ -98,6 +129,102 @@ export const MerchantDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-150">
+      {/* DEMO MERCHANT ACCOUNT SELECTOR — DEMO-ONLY */}
+      <div
+        id="demo-merchant-selector-card"
+        className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-500/40 p-4 sm:p-5 shadow-xl space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <Store className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-white font-['Cairo']">
+                  حساب التاجر للتجربة
+                </h2>
+                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/90 px-2 py-0.5 rounded-full border border-emerald-800/60 font-mono">
+                  Demo Merchant Simulator
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                تبديل متجر العرض التوضيحي لمحاكاة الطلبات والعمليات بعزل أمني مستقل
+              </p>
+            </div>
+          </div>
+
+          {/* Current Selected Merchant Display */}
+          <div
+            id="current-demo-merchant-indicator"
+            className="flex items-center gap-2.5 bg-slate-950 px-3.5 py-2 rounded-xl border border-emerald-500/30 self-start sm:self-auto shrink-0 shadow-inner"
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="text-right">
+              <span className="text-[10px] text-slate-400 block leading-tight font-medium">
+                حساب التاجر الحالي:
+              </span>
+              <span className="text-xs sm:text-sm font-black text-emerald-400 font-['Cairo']">
+                {currentOption.shortName}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dropdown Selector */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          <label
+            htmlFor="demo-merchant-account-select"
+            className="text-xs font-bold text-slate-300 shrink-0"
+          >
+            حساب التاجر للتجربة:
+          </label>
+          <select
+            id="demo-merchant-account-select"
+            value={currentMerchantId}
+            onChange={(e) => switchDemoMerchant(e.target.value)}
+            className="flex-1 bg-slate-950 border border-slate-700 hover:border-emerald-500 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-3.5 py-2.5 font-medium outline-none transition-all cursor-pointer shadow-sm"
+          >
+            {DEMO_MERCHANT_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id} className="bg-slate-900 text-white py-1">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Mobile & Touch-Friendly Quick Selector Buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 pt-1">
+          {DEMO_MERCHANT_OPTIONS.map((opt) => {
+            const isSelected = opt.id === currentMerchantId;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                id={`demo-merchant-chip-${opt.id}`}
+                onClick={() => switchDemoMerchant(opt.id)}
+                className={`p-2.5 rounded-xl text-right transition-all border cursor-pointer ${
+                  isSelected
+                    ? 'bg-emerald-950/80 border-emerald-500 text-white shadow-md shadow-emerald-950/60 ring-1 ring-emerald-500/50'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 hover:bg-slate-850'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-mono text-slate-500 font-bold">{opt.id}</span>
+                  {isSelected ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
+                  )}
+                </div>
+                <p className="text-xs font-bold text-slate-100 truncate">{opt.shortName}</p>
+                <p className="text-[10px] text-slate-400 truncate mt-0.5">{opt.nameEn}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Top Merchant Identity & Metrics Banner */}
       <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-[#122b27] border border-emerald-900/60 p-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -179,7 +306,7 @@ export const MerchantDashboard: React.FC = () => {
           <MessageSquare className="w-4 h-4" />
           <span>محادثات العملاء والطلبات المباشرة</span>
           <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-emerald-500/20 text-emerald-300">
-            {conversations.length} نشطة
+            {merchantConversations.length} نشطة
           </span>
         </button>
       </div>
@@ -205,31 +332,37 @@ export const MerchantDashboard: React.FC = () => {
               <span className="text-[11px] font-bold text-slate-400 block px-1">
                 المحادثات النشطة:
               </span>
-              {conversations.map((c) => {
-                const isSelected = activeConversation?.id === c.id;
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => setActiveConversation(c)}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                      isSelected
-                        ? 'bg-emerald-950/60 border-emerald-500 text-white'
-                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs">{c.customerName || 'عميل'}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">{c.lastMessageAt}</span>
+              {merchantConversations.length === 0 ? (
+                <div className="p-4 text-center text-xs text-slate-500">
+                  لا توجد محادثات مسجلة لهذا المتجر حالياً.
+                </div>
+              ) : (
+                merchantConversations.map((c) => {
+                  const isSelected = activeConversation?.id === c.id;
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setActiveConversation(c)}
+                      className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                        isSelected
+                          ? 'bg-emerald-950/60 border-emerald-500 text-white'
+                          : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-xs">{c.customerName || 'عميل'}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{c.lastMessageAt}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate mt-1">{c.lastMessage}</p>
+                      {c.orderId && (
+                        <span className="inline-block mt-1 text-[10px] font-mono text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800/60">
+                          طلب #{c.orderId}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-400 truncate mt-1">{c.lastMessage}</p>
-                    {c.orderId && (
-                      <span className="inline-block mt-1 text-[10px] font-mono text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800/60">
-                        طلب #{c.orderId}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
 
             {/* Chat Body & Actions */}
@@ -242,19 +375,22 @@ export const MerchantDashboard: React.FC = () => {
                       {activeConversation.customerName || 'أحمد مصطفى'}
                     </span>
                     <span className="text-slate-400 text-[11px]">
-                      معرّف المحادثة: {activeConversation.id} • الطلب المرتبط: {activeConversation.orderId || 'TW-1001'}
+                      معرّف المحادثة: {activeConversation.id} • الطلب المرتبط:{' '}
+                      {activeConversation.orderId ? `#${activeConversation.orderId}` : 'لا يوجد طلب مرتبط'}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* Merchant Confirm Button */}
-                    <button
-                      onClick={() => confirmOrderByMerchant(activeConversation.orderId)}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>تأكيد وقبول الطلب من المتجر</span>
-                    </button>
+                    {/* Merchant Confirm Button - visible only when an order is actually attached */}
+                    {activeConversation.orderId && (
+                      <button
+                        onClick={() => confirmOrderByMerchant(activeConversation.orderId)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>تأكيد وقبول الطلب من المتجر</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   Send,
@@ -11,17 +11,14 @@ import {
   Store,
   User,
   CheckCircle2,
-  Clock,
   FileText,
   Sparkles,
   Camera,
   Truck,
-  ShieldCheck,
-  ChevronLeft,
   Check,
   Package,
-  KeyRound,
-  AlertTriangle,
+  PlusCircle,
+  ChevronLeft,
 } from 'lucide-react';
 import { MessageType } from '../../types';
 import { getQuickRepliesForMerchant } from '../../utils/quickReplies';
@@ -34,6 +31,7 @@ export const CustomerChat: React.FC = () => {
     orders,
     products,
     selectedMerchantId,
+    selectedMerchantProfileId,
     setSelectedMerchantProfileId,
     setCustomerView,
     sendChatMessage,
@@ -43,35 +41,51 @@ export const CustomerChat: React.FC = () => {
     createOrderForMerchant,
     getMerchantDraft,
     saveMerchantDraft,
-    authorizations,
     setActiveOrderId,
     openMerchantChat,
   } = useApp();
 
   const [inputText, setInputText] = useState('');
   const [senderMode, setSenderMode] = useState<'CUSTOMER' | 'MERCHANT'>('CUSTOMER');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Compute active merchant: prioritize selected merchant, then conversation merchant, never hardcoded
+  // Compute active merchant: prioritize selected merchant, then conversation merchant
   const merchant =
     merchants.find((m) => m.id === selectedMerchantId) ||
     merchants.find((m) => m.id === activeConversation?.merchantId) ||
-    merchants[0];
+    (selectedMerchantProfileId ? merchants.find((m) => m.id === selectedMerchantProfileId) : undefined);
 
   // Auto-sync conversation when selected merchant changes
   useEffect(() => {
     if (merchant && activeConversation?.merchantId !== merchant.id) {
       openMerchantChat(merchant.id);
     }
-  }, [merchant.id, activeConversation?.merchantId, openMerchantChat]);
+  }, [merchant?.id, activeConversation?.merchantId, openMerchantChat]);
 
   // Merchant-specific products
-  const merchantProducts = products.filter((p) => p.merchantId === merchant.id);
+  const merchantProducts = merchant ? products.filter((p) => p.merchantId === merchant.id) : [];
 
-  // Linked order: MUST be strictly scoped to this merchant. Never leak another merchant's order (e.g. TW-1001) into this chat
-  const linkedOrder = orders.find(
-    (o) => o.merchantId === merchant.id && (activeConversation?.orderId ? o.id === activeConversation.orderId : true)
-  );
+  // Linked order: MUST be strictly scoped to customerId + merchantId + orderId.
+  // If activeConversation.orderId exists: load ONLY that exact order.
+  // If conversation has NO orderId: do NOT select an arbitrary active order.
+  const linkedOrder = useMemo(() => {
+    if (!activeConversation?.orderId || !merchant) {
+      return null;
+    }
+    const match = orders.find(
+      (o) =>
+        o.id === activeConversation.orderId &&
+        (o.merchantId === merchant.id || (!o.merchantId && !merchant.id))
+    );
+    if (match) return match;
+    const idMatch = orders.find((o) => o.id === activeConversation.orderId);
+    if (idMatch && (idMatch.merchantId === merchant.id || activeConversation.merchantId === merchant.id)) {
+      return idMatch;
+    }
+    return null;
+  }, [orders, activeConversation?.orderId, activeConversation?.merchantId, merchant?.id]);
+
+  const isOrderCompleted = linkedOrder?.status === 'COMPLETED';
+  const hasActiveOrder = Boolean(linkedOrder && !isOrderCompleted);
 
   // Filter messages to strictly guarantee ONLY the active conversation's messages are displayed
   const activeChatMessages = chatMessages.filter(
@@ -80,26 +94,101 @@ export const CustomerChat: React.FC = () => {
 
   // Restore merchant-specific draft input
   useEffect(() => {
+    if (!merchant) return;
     const draft = getMerchantDraft(merchant.id);
     if (draft?.inputText !== undefined) {
       setInputText(draft.inputText);
     } else {
       setInputText('');
     }
-  }, [merchant.id]);
+  }, [merchant?.id]);
 
   const handleInputChange = (text: string) => {
     setInputText(text);
-    saveMerchantDraft(merchant.id, { inputText: text });
+    if (merchant) {
+      saveMerchantDraft(merchant.id, { inputText: text });
+    }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // --- Natural Chat Scrolling (Part 1) ---
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+  const prevMessagesCountRef = useRef<number>(activeChatMessages.length);
+  const activeConvIdRef = useRef<string | undefined>(activeConversation?.id);
+
+  // Reset scroll state on conversation switch
+  useEffect(() => {
+    if (activeConversation?.id !== activeConvIdRef.current) {
+      activeConvIdRef.current = activeConversation?.id;
+      prevMessagesCountRef.current = 0;
+      isNearBottomRef.current = true;
+    }
+  }, [activeConversation?.id]);
+
+  const handleDesktopScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // User is near bottom if within 120px
+    isNearBottomRef.current = distanceFromBottom < 120;
   };
+
+  // Track window scroll for mobile natural document scrolling
+  useEffect(() => {
+    const handleMobileWindowScroll = () => {
+      if (typeof window === 'undefined' || window.innerWidth >= 768) return;
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+      const distanceFromBottom = docHeight - (scrollY + windowHeight);
+      isNearBottomRef.current = distanceFromBottom < 220;
+    };
+
+    window.addEventListener('scroll', handleMobileWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleMobileWindowScroll);
+  }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [activeChatMessages]);
+    const isNew = activeChatMessages.length > prevMessagesCountRef.current;
+    const lastMsg = activeChatMessages[activeChatMessages.length - 1];
+    const isSentByMe =
+      lastMsg &&
+      ((senderMode === 'CUSTOMER' && lastMsg.senderRole === 'CUSTOMER') ||
+        (senderMode === 'MERCHANT' && lastMsg.senderRole === 'MERCHANT'));
+
+    const isDesktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+    const container = scrollContainerRef.current;
+
+    if (isDesktop && container) {
+      if (prevMessagesCountRef.current === 0) {
+        // Desktop: opening conversation -> show latest message inside container without jumping the whole page
+        container.scrollTop = container.scrollHeight;
+      } else if (isNew) {
+        // Desktop: new message while near bottom or sent by me -> scroll container smoothly
+        if (isNearBottomRef.current || isSentByMe) {
+          container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        }
+      }
+    } else {
+      // Mobile: normal document/page scrolling
+      if (prevMessagesCountRef.current === 0) {
+        // Mobile: opening conversation -> smoothly bring into view the latest message / composer
+        const timer = setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+        }, 50);
+        return () => clearTimeout(timer);
+      } else if (isNew) {
+        // Mobile: new message while near bottom or sent by me -> go to latest
+        // If user is reading old messages -> do not force them to bottom
+        if (isNearBottomRef.current || isSentByMe) {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
+    }
+
+    prevMessagesCountRef.current = activeChatMessages.length;
+  }, [activeChatMessages, senderMode]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -112,8 +201,22 @@ export const CustomerChat: React.FC = () => {
       await sendMerchantReply(textToSend, 'TEXT');
     }
     setInputText('');
-    saveMerchantDraft(merchant.id, { inputText: '' });
+    if (merchant) {
+      saveMerchantDraft(merchant.id, { inputText: '' });
+    }
   };
+
+  if (!merchant) {
+    return (
+      <div className="max-w-xl mx-auto my-12 p-8 text-center rounded-3xl bg-slate-900/90 border border-slate-800 text-slate-300 space-y-4 shadow-xl">
+        <Store className="w-12 h-12 text-slate-500 mx-auto" />
+        <h3 className="text-lg font-bold text-white font-['Cairo']">لا يوجد متجر محدد للمحادثة</h3>
+        <p className="text-xs text-slate-400">
+          يرجى اختيار متجر من قائمة المتاجر المعتمدة لبدء التنسيق والمحادثة المباشرة.
+        </p>
+      </div>
+    );
+  }
 
   // Determine merchant category/type for contextual presets
   const isRestaurant =
@@ -235,96 +338,68 @@ export const CustomerChat: React.FC = () => {
   };
 
   const handleCustomerConfirm = async () => {
-    let orderToConfirm = linkedOrder;
-    if (!orderToConfirm) {
-      orderToConfirm = await createOrderForMerchant(merchant.id);
+    try {
+      let orderToConfirm = linkedOrder;
+      if (!orderToConfirm) {
+        orderToConfirm = await createOrderForMerchant(merchant.id);
+      }
+      await confirmOrderByCustomer(orderToConfirm.id, merchant.id);
+    } catch (err: any) {
+      console.error('Error confirming order by customer:', err);
     }
-    await confirmOrderByCustomer(orderToConfirm.id, merchant.id);
   };
 
   const handleMerchantConfirm = async () => {
-    let orderToConfirm = linkedOrder;
-    if (!orderToConfirm) {
-      orderToConfirm = await createOrderForMerchant(merchant.id);
+    try {
+      let orderToConfirm = linkedOrder;
+      if (!orderToConfirm) {
+        orderToConfirm = await createOrderForMerchant(merchant.id);
+      }
+      await confirmOrderByMerchant(orderToConfirm.id, merchant.id);
+    } catch (err: any) {
+      console.error('Error confirming order by merchant:', err);
     }
-    await confirmOrderByMerchant(orderToConfirm.id, merchant.id);
   };
 
-  const bothConfirmed = Boolean(linkedOrder?.customerConfirmed && linkedOrder?.merchantConfirmed);
-  const activeAuth = authorizations.find(
-    (a) => a.orderId === linkedOrder?.id && a.status === 'ACTIVE'
-  );
-
-  const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
-  const [otpError, setOtpError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeAuth || !activeAuth.expiresAtTimestamp) {
-      setRemainingSeconds(0);
-      return;
+  const handleStartNewOrder = async () => {
+    try {
+      const newOrd = await createOrderForMerchant(merchant.id);
+      await confirmOrderByCustomer(newOrd.id, merchant.id);
+    } catch (err: any) {
+      console.error('Error starting new order:', err);
     }
-    const updateCountdown = () => {
-      const now = Date.now();
-      const diff = Math.max(0, Math.floor((activeAuth.expiresAtTimestamp! - now) / 1000));
-      setRemainingSeconds(diff);
-    };
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [activeAuth?.expiresAtTimestamp, activeAuth?.status]);
-
-  const formatRemainingTime = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-150 max-w-4xl mx-auto">
+    <div className="w-full max-w-4xl mx-auto space-y-3 sm:space-y-4 animate-in fade-in duration-150">
       {/* Top Breadcrumb & Controls */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between px-1">
         <button
           onClick={() => {
             setSelectedMerchantProfileId(merchant.id);
             setCustomerView('MERCHANT_PROFILE');
           }}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors cursor-pointer"
         >
           <ArrowRight className="w-4 h-4" />
           <span>العودة لملف {merchant.name}</span>
         </button>
 
-        <div className="flex items-center gap-2">
-          {linkedOrder && (
-            <button
-              onClick={() => {
-                setActiveOrderId(linkedOrder.id);
-                setCustomerView('TRACKING');
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold transition-colors"
-            >
-              <Truck className="w-3.5 h-3.5" />
-              <span>تتبع الشحنة بالصندوق #{linkedOrder.id}</span>
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-          )}
-
-          <button
-            onClick={() => setCustomerView('MERCHANT_LIST')}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-colors"
-          >
-            <Store className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">تغيير المتجر</span>
-          </button>
-        </div>
+        <button
+          onClick={() => setCustomerView('MERCHANT_LIST')}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+        >
+          <Store className="w-3.5 h-3.5 text-slate-400" />
+          <span className="hidden sm:inline">تغيير المتجر</span>
+        </button>
       </div>
 
-      {/* Main Chat Container */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[750px]">
-        {/* Chat Header */}
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Main Chat Container - Real Mobile Chat Structure (Section 4) */}
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xl overflow-hidden flex flex-col">
+        {/* Merchant / Conversation Header */}
+        <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="relative w-11 h-11 rounded-2xl overflow-hidden bg-slate-200 border border-slate-300 shrink-0">
+            <div className="relative w-10 sm:w-11 h-10 sm:h-11 rounded-2xl overflow-hidden bg-slate-200 border border-slate-300 shrink-0">
               <img
                 src={
                   merchant.ownerPhoto ||
@@ -333,7 +408,7 @@ export const CustomerChat: React.FC = () => {
                 alt={merchant.businessName}
                 className="w-full h-full object-cover"
               />
-              <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" />
+              <span className="absolute bottom-0 right-0 w-2.5 sm:w-3 h-2.5 sm:h-3 rounded-full bg-emerald-500 border-2 border-white" />
             </div>
 
             <div>
@@ -351,63 +426,46 @@ export const CustomerChat: React.FC = () => {
             </div>
           </div>
 
-          {/* Confirmation Status Badges */}
+          {/* Compact Order Status Badges */}
           <div className="flex items-center gap-2 text-xs">
             {linkedOrder ? (
-              <>
-                <div
-                  className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 font-semibold text-[11px] ${
-                    linkedOrder.customerConfirmed
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200'
-                  }`}
-                >
-                  {linkedOrder.customerConfirmed ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>تأكيد العميل ✓</span>
-                    </>
-                  ) : (
-                    <>
-                      <Clock className="w-3.5 h-3.5 text-amber-600" />
-                      <span>بانتظار تأكيد العميل</span>
-                    </>
-                  )}
-                </div>
-
-                <div
-                  className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 font-semibold text-[11px] ${
-                    linkedOrder.merchantConfirmed
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200'
-                  }`}
-                >
-                  {linkedOrder.merchantConfirmed ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>تأكيد المتجر ✓</span>
-                    </>
-                  ) : (
-                    <>
-                      <Clock className="w-3.5 h-3.5 text-amber-600" />
-                      <span>بانتظار تأكيد المتجر</span>
-                    </>
-                  )}
-                </div>
-              </>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 font-semibold text-[11px] border border-slate-200">
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                <span className="hidden sm:inline">طلب #{linkedOrder.id}:</span>
+                <span className="text-blue-700 font-bold">
+                  {isOrderCompleted
+                    ? 'تم التسليم بالصندوق ✓'
+                    : linkedOrder.status === 'DRIVER_ARRIVED'
+                    ? 'المندوب وصل للصندوق'
+                    : linkedOrder.status === 'OUT_FOR_DELIVERY'
+                    ? 'في الطريق للتسليم'
+                    : linkedOrder.customerConfirmed
+                    ? 'مؤكد من العميل'
+                    : 'قيد التنسيق'}
+                </span>
+              </div>
             ) : (
-              <span className="text-[11px] font-medium bg-slate-200/80 text-slate-700 px-2.5 py-1 rounded-xl">
-                محادثة مباشرة • لا يوجد طلب مرتبط بعد
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-medium bg-slate-200/80 text-slate-700 px-2.5 py-1 rounded-xl">
+                  لا يوجد طلب مرتبط
+                </span>
+                <button
+                  type="button"
+                  onClick={handleStartNewOrder}
+                  className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                >
+                  إنشاء طلب جديد
+                </button>
+              </div>
             )}
           </div>
         </div>
 
         {/* Merchant Products / Menu Quick-Selection Strip */}
-        <div className="bg-slate-100/90 border-b border-slate-200 px-4 py-2 flex items-center gap-2 overflow-x-auto scrollbar-none">
+        <div className="bg-slate-100/90 border-b border-slate-200 px-3.5 sm:px-4 py-2 flex items-center gap-2 overflow-x-auto scrollbar-none shrink-0">
           <span className="text-[11px] font-bold text-slate-600 shrink-0 flex items-center gap-1">
             <Package className="w-3.5 h-3.5 text-blue-600" />
-            <span>منتجات وقائمة {merchant.name}:</span>
+            <span>قائمة {merchant.name}:</span>
           </span>
           {merchantProducts.length === 0 ? (
             <span className="text-[11px] text-slate-400">لا توجد منتجات مسجلة حالياً لهذا المتجر</span>
@@ -421,7 +479,7 @@ export const CustomerChat: React.FC = () => {
                   setInputText(messageText);
                   saveMerchantDraft(merchant.id, { inputText: messageText });
                 }}
-                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-[11px] font-medium text-slate-700 transition-all shadow-xs"
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-[11px] font-medium text-slate-700 transition-all shadow-xs cursor-pointer"
                 title={`انقر لتجهيز رسالة طلب ${p.name}`}
               >
                 <span>{p.name}</span>
@@ -431,161 +489,12 @@ export const CustomerChat: React.FC = () => {
           )}
         </div>
 
-        {/* Error Notification if OTP generation fails */}
-        {otpError && (
-          <div className="bg-red-50 border-b border-red-200 p-3 px-5 flex items-center justify-between text-red-800 text-xs">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-              <span className="font-semibold">{otpError}</span>
-            </div>
-            <button
-              onClick={() => setOtpError(null)}
-              className="text-red-500 hover:text-red-700 text-xs px-2 py-0.5 rounded font-bold"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Active Delivery Authorization Card (Section 4) */}
-        {activeAuth && (
-          <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white p-4 px-5 border-b border-blue-600/40 shadow-inner">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-emerald-300 font-['Cairo']">
-                      تم إصدار تصريح التوصيل
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
-                      تصريح نشط (Authorization Active)
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300">
-                    تم إنشاء تصريح فتح الصندوق الذكي وتجهيز قناة التوثيق المشفرة للمندوب.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-slate-300">
-                    <span>رقم الطلب: <strong className="text-white font-mono">#{linkedOrder?.id}</strong></span>
-                    <span>•</span>
-                    <span>الصندوق الذكي: <strong className="text-amber-300 font-mono">{activeAuth.smartBoxId}</strong></span>
-                    <span>•</span>
-                    <span>الحجيرة: <strong className="text-cyan-300 font-mono">{activeAuth.compartmentId}</strong></span>
-                    <span>•</span>
-                    <span>المندوب: <strong className="text-white">{activeAuth.driverName || 'إسلام عامر'}</strong></span>
-                    <span>•</span>
-                    <span>صلاحية التصريح: <strong className="text-amber-300">5 دقائق</strong></span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between md:justify-end gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-700/60">
-                <div className="bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-700 text-center">
-                  <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1">
-                    <Clock className="w-3 h-3 text-amber-400" />
-                    <span>الوقت المتبقي</span>
-                  </div>
-                  <div className="text-base font-mono font-bold text-amber-400">
-                    {formatRemainingTime(remainingSeconds)}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (linkedOrder) setActiveOrderId(linkedOrder.id);
-                    setCustomerView('TRACKING');
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
-                >
-                  <Truck className="w-3.5 h-3.5" />
-                  <span>متابعة التوصيل</span>
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Order Status & Confirmation Banners */}
-        {linkedOrder ? (
-          <>
-            {bothConfirmed && !activeAuth && (
-              <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white p-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="text-xs">
-                    <span className="font-bold block">
-                      تم تأكيد الطلب #{linkedOrder.id} بنجاح من العميل والمتجر! 🎉
-                    </span>
-                    <span className="text-emerald-100 text-[11px]">
-                      الصندوق: {linkedOrder.smartBoxId || 'BOX-102'} • الحجيرة: {linkedOrder.compartmentId || '01'} • سيصلك إشعار أمني فور وصول المندوب لمنحه إذن الفتح المؤقت.
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (linkedOrder) setActiveOrderId(linkedOrder.id);
-                    setCustomerView('TRACKING');
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                >
-                  <Truck className="w-4 h-4" />
-                  <span>تتبع الشحنة</span>
-                </button>
-              </div>
-            )}
-
-            {!bothConfirmed && !activeAuth && (
-              <div className="bg-amber-50/90 border-b border-amber-200/80 p-3 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-amber-900">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                  <div className="text-xs">
-                    <span className="font-bold">طلب #{linkedOrder.id} قيد الاعتماد من الطرفين</span>
-                    <span className="text-amber-700 text-[11px] block sm:inline sm:mr-2">
-                      (يتطلب تأكيد الطرفين لبدء تجهيز وانطلاق المندوب نحو الصندوق الذكي)
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] shrink-0 font-medium">
-                  <span className={`px-2 py-0.5 rounded-md ${linkedOrder.customerConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 border border-amber-300'}`}>
-                    {linkedOrder.customerConfirmed ? 'العميل: مؤكد ✓' : 'العميل: غير مؤكد'}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-md ${linkedOrder.merchantConfirmed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 border border-amber-300'}`}>
-                    {linkedOrder.merchantConfirmed ? 'المتجر: مؤكد ✓' : 'المتجر: غير مؤكد'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="bg-blue-50/90 border-b border-blue-200/80 p-3 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-blue-900">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
-              <div className="text-xs">
-                <span className="font-bold">محادثة طلب مباشر مع {merchant.businessName || merchant.name}</span>
-                <span className="text-blue-700 text-[11px] block sm:inline sm:mr-2">
-                  (يمكنك تنسيق الطلب مع المتجر مباشرةً ثم النقر على &quot;إنشاء وتأكيد طلب جديد&quot; لحجز الحجيرة)
-                </span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleCustomerConfirm}
-              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0 self-start sm:self-auto cursor-pointer"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>إنشاء وتأكيد طلب جديد</span>
-            </button>
-          </div>
-        )}
-
-        {/* Message Scroll Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/50">
+        {/* Chat Messages Area - Responsive: Natural mobile page scroll, bounded scroll area on desktop */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleDesktopScroll}
+          className="p-3.5 sm:p-6 space-y-4 bg-slate-50/50 md:min-h-[280px] md:max-h-[560px] md:overflow-y-auto md:overscroll-contain"
+        >
           {activeChatMessages.length === 0 ? (
             <div className="text-center py-12 space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto">
@@ -720,22 +629,33 @@ export const CustomerChat: React.FC = () => {
               );
             })
           )}
-          <div ref={messagesEndRef} />
+
+          {/* Discreet Completed Order Delivery Summary Pill (Section 10) */}
+          {isOrderCompleted && linkedOrder && (
+            <div className="flex justify-center my-3">
+              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold shadow-xs">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>✓ تم التسليم بنجاح — تم إيداع الشحنة وتأمين الصندوق وإكمال عملية التسليم.</span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} className="h-1 shrink-0" />
         </div>
 
-        {/* Quick Action Buttons for the Conversation Flow */}
-        <div className="p-3 bg-slate-100 border-t border-slate-200 space-y-2">
-          <div className="flex items-center justify-between text-xs">
+        {/* Quick Actions & Quick Replies Area (Section 4, 7, 9) */}
+        <div className="p-2.5 sm:p-3 bg-slate-100 border-t border-slate-200 space-y-2 shrink-0">
+          <div className="flex items-center justify-between text-xs px-0.5">
             <span className="text-slate-500 font-semibold text-[11px]">
               إجراءات سريعة لمسار الطلب الميداني:
             </span>
             {/* Interactive Sender Toggle */}
-            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 text-[11px]">
-              <span className="text-slate-400 px-1">المحاكاة:</span>
+            <div className="flex items-center gap-1 bg-white p-0.5 sm:p-1 rounded-xl border border-slate-200 text-[11px]">
+              <span className="text-slate-400 px-1 text-[10px] sm:text-[11px]">المحاكاة:</span>
               <button
                 type="button"
                 onClick={() => setSenderMode('CUSTOMER')}
-                className={`px-2 py-0.5 rounded-lg font-bold transition-all ${
+                className={`px-2 py-0.5 rounded-lg font-bold transition-all text-[10px] sm:text-[11px] cursor-pointer ${
                   senderMode === 'CUSTOMER'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -746,7 +666,7 @@ export const CustomerChat: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSenderMode('MERCHANT')}
-                className={`px-2 py-0.5 rounded-lg font-bold transition-all ${
+                className={`px-2 py-0.5 rounded-lg font-bold transition-all text-[10px] sm:text-[11px] cursor-pointer ${
                   senderMode === 'MERCHANT'
                     ? 'bg-emerald-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -757,73 +677,111 @@ export const CustomerChat: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
+          {/* Quick Actions Strip */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none sm:flex-wrap">
             <button
               onClick={handleSendQuickCustomerPreset}
-              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
             >
               <span>{quickCustomerPresetLabel}</span>
             </button>
 
             <button
               onClick={handleSendHandwrittenOrder}
-              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
             >
               <span>{handwrittenLabel}</span>
             </button>
 
             <button
               onClick={handleSendMerchantAdjustment}
-              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
             >
               <span>{merchantAdjustmentLabel}</span>
             </button>
 
             <button
               onClick={handleSendCustomerAgreement}
-              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1"
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border border-slate-300 text-slate-700 text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
             >
               <span>{customerAgreementLabel}</span>
             </button>
 
-            {/* Confirmation Buttons */}
-            {(!linkedOrder || !linkedOrder.customerConfirmed) && (
+            {/* Merchant-Specific Quick Action: Active Order Tracking (Section 9) */}
+            {hasActiveOrder && linkedOrder && (
               <button
-                onClick={handleCustomerConfirm}
-                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                onClick={() => {
+                  setActiveOrderId(linkedOrder.id);
+                  setCustomerView('TRACKING');
+                }}
+                className="shrink-0 px-3 py-1 rounded-lg text-[11px] font-bold shadow-sm transition-all flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 text-white cursor-pointer"
               >
-                <Check className="w-3 h-3" />
-                <span>{linkedOrder ? 'تأكيد الطلب (العميل)' : 'إنشاء وتأكيد طلب جديد'}</span>
+                <Truck className="w-3.5 h-3.5" />
+                <span>تتبع الشحنة بالصندوق #{linkedOrder.id}</span>
               </button>
             )}
 
-            {linkedOrder && !linkedOrder.merchantConfirmed && (
+            {/* Merchant-Specific Quick Action: Unconfirmed state buttons */}
+            {hasActiveOrder && linkedOrder && !linkedOrder.customerConfirmed && (
+              <button
+                onClick={handleCustomerConfirm}
+                className="shrink-0 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <Check className="w-3 h-3" />
+                <span>تأكيد الطلب (العميل)</span>
+              </button>
+            )}
+
+            {hasActiveOrder && linkedOrder && !linkedOrder.merchantConfirmed && (
               <button
                 onClick={handleMerchantConfirm}
-                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                className="shrink-0 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
               >
                 <Check className="w-3 h-3" />
                 <span>تأكيد الطلب (التاجر)</span>
               </button>
             )}
 
-            {/* Tracking link if order is confirmed */}
-            {bothConfirmed && (
+            {/* Merchant-Specific Quick Action: No Active Order -> "إنشاء طلب جديد" (Section 9) */}
+            {!linkedOrder && (
               <button
-                onClick={() => {
-                  if (linkedOrder) setActiveOrderId(linkedOrder.id);
-                  setCustomerView('TRACKING');
-                }}
-                className="px-3 py-1 rounded-lg text-[11px] font-bold shadow-sm transition-all flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 text-white cursor-pointer"
+                onClick={handleCustomerConfirm}
+                className="shrink-0 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
               >
-                <Truck className="w-3.5 h-3.5" />
-                <span>تتبع الشحنة بالصندوق</span>
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>إنشاء طلب جديد</span>
               </button>
+            )}
+
+            {/* Merchant-Specific Quick Action: Completed Order -> "إنشاء طلب جديد" & "عرض تفاصيل التسليم" (Section 9 & 10) */}
+            {isOrderCompleted && (
+              <>
+                <button
+                  onClick={handleStartNewOrder}
+                  className="shrink-0 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>إنشاء طلب جديد</span>
+                </button>
+
+                {linkedOrder && (
+                  <button
+                    onClick={() => {
+                      setActiveOrderId(linkedOrder.id);
+                      setCustomerView('TRACKING');
+                    }}
+                    className="shrink-0 px-3 py-1 rounded-lg text-[11px] font-bold shadow-sm transition-all flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white cursor-pointer"
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>عرض تفاصيل التسليم (POD)</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
 
-          {/* Category-based Quick Replies */}
-          <div className="pt-2 border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
+          {/* Category-based Quick Replies Strip */}
+          <div className="pt-1.5 border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs scrollbar-none">
             <span className="text-slate-500 font-semibold text-[11px] shrink-0">
               ردود سريعة:
             </span>
@@ -846,8 +804,11 @@ export const CustomerChat: React.FC = () => {
           </div>
         </div>
 
-        {/* Input Form */}
-        <form onSubmit={handleSendMessage} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
+        {/* Message Composer (Section 4 & 8) */}
+        <form
+          onSubmit={handleSendMessage}
+          className="p-2.5 sm:p-3 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0"
+        >
           <input
             type="text"
             value={inputText}
@@ -857,13 +818,13 @@ export const CustomerChat: React.FC = () => {
                 ? `اكتب رسالتك إلى ${merchant.name}...`
                 : `اكتب رد المتجر (${merchant.name}) على العميل...`
             }
-            className="flex-1 px-4 py-2.5 rounded-2xl bg-slate-100 border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-['Cairo']"
+            className="flex-1 px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-slate-100 border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-['Cairo'] text-slate-900"
           />
 
           <button
             type="submit"
             disabled={!inputText.trim()}
-            className={`p-2.5 rounded-2xl text-white font-bold transition-all shadow-md cursor-pointer ${
+            className={`p-2.5 rounded-xl sm:rounded-2xl text-white font-bold transition-all shadow-md cursor-pointer shrink-0 ${
               senderMode === 'CUSTOMER'
                 ? 'bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300'
                 : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300'

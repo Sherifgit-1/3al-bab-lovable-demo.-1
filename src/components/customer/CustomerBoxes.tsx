@@ -230,9 +230,9 @@ export const CustomerBoxes: React.FC = () => {
 
               <div className="flex items-center gap-3">
                 <div className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-center">
-                  <span className="text-[10px] text-slate-400 block">رمز المرور (OTP)</span>
-                  <span className="font-mono text-cyan-400 font-bold text-sm tracking-wider">
-                    {auth.otp}
+                  <span className="text-[10px] text-slate-400 block">حالة التصريح</span>
+                  <span className="text-emerald-400 font-bold text-xs">
+                    {auth.status === 'ACTIVE' ? 'تم تفويض المندوب' : auth.status === 'USED' ? 'تم تأمين الصندوق' : 'معتمد'}
                   </span>
                 </div>
 

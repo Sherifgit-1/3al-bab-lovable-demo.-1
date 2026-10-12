@@ -36,6 +36,7 @@ export const SimulatedBoxWidget: React.FC<{ isOpen: boolean; onClose: () => void
     simulateTamperAttack,
     resetTamperStatus,
     toggleEmergencySiren,
+    activeOrder,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'LOCKER' | 'CAMERA' | 'SENSORS'>('LOCKER');
@@ -209,7 +210,7 @@ export const SimulatedBoxWidget: React.FC<{ isOpen: boolean; onClose: () => void
                       )}
                     </div>
                     <div className="text-[10px] text-cyan-400/90 font-medium">
-                      {!hardwareSim.isDoorClosed ? 'الباب مفتوح للإيداع' : 'طلب نشط: TW-8921#'}
+                      {!hardwareSim.isDoorClosed ? 'الباب مفتوح للإيداع' : (activeOrder ? `طلب نشط: #${activeOrder.id}` : 'حجيرة مخصصة')}
                     </div>
                     <div className="flex items-center justify-between text-[10px] font-mono">
                       <span className="text-slate-400 flex items-center gap-1">
@@ -345,7 +346,7 @@ export const SimulatedBoxWidget: React.FC<{ isOpen: boolean; onClose: () => void
                   {/* Bounding box */}
                   <div className="self-center w-48 h-36 border-2 border-cyan-400/80 rounded-lg flex flex-col justify-between p-1.5 bg-cyan-500/10">
                     <span className="text-[10px] text-cyan-300 bg-cyan-950/80 px-1 rounded self-start font-mono">
-                      PACKAGE #TW-8921 (99.2%)
+                      PACKAGE #{activeOrder?.id || hardwareSim.compartmentId} (99.2%)
                     </span>
                     <span className="text-[10px] text-emerald-300 bg-black/60 px-1 rounded self-end font-mono">
                       LOAD CELL: +1.43kg MATCHED

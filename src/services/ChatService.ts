@@ -130,15 +130,15 @@ export class MockChatService {
     return this.conversations.find((c) => c.orderId === orderId);
   }
 
-  getConversationByMerchantSync(merchantId: string, customerId: string = 'cust-1'): Conversation | undefined {
-    return this.conversations.find(
-      (c) => c.merchantId === merchantId && c.customerId === customerId
+  getConversationByMerchantSync(merchantId: string, customerId?: string): Conversation | undefined {
+    return this.conversations.find((c) =>
+      c.merchantId === merchantId && (customerId ? c.customerId === customerId : true)
     );
   }
 
   async getConversationByMerchant(
     merchantId: string,
-    customerId: string = 'cust-1'
+    customerId?: string
   ): Promise<Conversation | undefined> {
     return this.getConversationByMerchantSync(merchantId, customerId);
   }
@@ -217,7 +217,10 @@ export class MockChatService {
         }
       } else {
         conv = this.conversations.find(
-          (c) => c.customerId === customerId && c.merchantId === merchantId
+          (c) =>
+            c.customerId === customerId &&
+            c.merchantId === merchantId &&
+            (!c.orderId || c.orderId === 'general')
         );
         if (conv) {
           return conv;

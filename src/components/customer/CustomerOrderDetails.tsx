@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   ArrowRight,
   Package,
@@ -24,6 +25,7 @@ import {
   Phone,
   Check,
   XCircle,
+  Lock,
 } from 'lucide-react';
 
 export const CustomerOrderDetails: React.FC = () => {
@@ -38,14 +40,17 @@ export const CustomerOrderDetails: React.FC = () => {
     authorizations,
   } = useApp();
 
+  const { currentUser } = useAuth();
+  const currentCustomerId = currentUser?.role === 'CUSTOMER' ? currentUser.id : currentUser?.id;
+
   const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
   const [rejectNotice, setRejectNotice] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Resolve the order strictly from the selected order in navigation/state (activeOrderId).
-  // If no selected order exists or order is not found, display a clear empty state.
-  // Never fallback to TW-1001 or any unrelated old order.
-  const order = activeOrderId ? orders.find((o) => o.id === activeOrderId) || null : null;
+  // Strictly enforce customer ownership.
+  const rawOrder = activeOrderId ? orders.find((o) => o.id === activeOrderId) || null : null;
+  const order = rawOrder && currentCustomerId && rawOrder.customerId === currentCustomerId ? rawOrder : null;
 
   if (!order) {
     return (
@@ -69,13 +74,46 @@ export const CustomerOrderDetails: React.FC = () => {
     );
   }
 
-  // Active authorization for this order
-  const activeAuth = authorizations.find(
-    (a) => a.orderId === order.id && a.status === 'ACTIVE'
-  );
+  const [nowMs, setNowMs] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Strict match on active authorization (Section 15)
+  const activeAuth = authorizations
+    .filter(
+      (a) =>
+        a.orderId === order.id &&
+        a.status === 'ACTIVE' &&
+        (!a.expiresAtTimestamp || a.expiresAtTimestamp > nowMs) &&
+        !a.usedAt
+    )
+    .sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
+
+  const pendingAuth = authorizations
+    .filter((a) => a.orderId === order.id && a.status === 'PENDING')
+    .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0];
+
+  const expiredAuth = authorizations
+    .filter((a) => a.orderId === order.id && a.status === 'EXPIRED')
+    .sort((x, y) => (y.expiresAtTimestamp || 0) - (x.expiresAtTimestamp || 0))[0];
+
+  const rejectedAuth = authorizations
+    .filter((a) => a.orderId === order.id && a.status === 'REJECTED')
+    .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0];
+
+  const remainingSeconds = activeAuth?.expiresAtTimestamp
+    ? Math.max(0, Math.floor((activeAuth.expiresAtTimestamp - nowMs) / 1000))
+    : 0;
+  const timerMinutes = Math.floor(remainingSeconds / 60);
+  const timerSecs = remainingSeconds % 60;
+  const formattedCountdown = `${timerMinutes}:${timerSecs < 10 ? '0' : ''}${timerSecs}`;
 
 
   const handleCustomerAuthorize = async () => {
+    if (order.status === 'COMPLETED') return;
     setIsAuthorizing(true);
     setAuthError(null);
     try {
@@ -326,6 +364,12 @@ export const CustomerOrderDetails: React.FC = () => {
               {order.deliveryAddress && (
                 <p className="text-[11px] text-slate-400 truncate">الموقع: {order.deliveryAddress}</p>
               )}
+              {order.status === 'COMPLETED' && (
+                <div className="pt-1.5 flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
+                  <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>الصندوق مغلق ومؤمّن</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -356,8 +400,41 @@ export const CustomerOrderDetails: React.FC = () => {
           </div>
         )}
 
-        {/* Security Access Authorization Card */}
-        {activeAuth ? (
+        {/* Security Access Authorization Card - COMPLETED State takes strict priority */}
+        {order.status === 'COMPLETED' ? (
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-950/80 via-slate-900 to-slate-950 border border-emerald-500/60 space-y-3.5 shadow-xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <h4 className="font-bold text-white text-sm sm:text-base">تم التسليم بنجاح</h4>
+              </div>
+              <span className="text-[10px] text-emerald-300 bg-emerald-950 px-2.5 py-1 rounded-full border border-emerald-800 font-bold">
+                مكتمل ومؤمّن ✓
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-right shadow-inner">
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold text-emerald-400 block">
+                  تم إيداع الشحنة وتأمين الصندوق
+                </span>
+                <p className="text-[11px] text-slate-300">
+                  تم إيداع طلبك داخل الحجيرة بنجاح، وإغلاق القفل الإلكتروني وتأمين الصندوق بالكامل.
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 font-bold text-xs shrink-0">
+                <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                <span>الصندوق مغلق ومؤمّن</span>
+              </span>
+            </div>
+
+            <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2 pt-1 font-mono">
+              <span>الصندوق: <strong className="text-amber-300">{order.smartBoxId || 'BOX-102'}</strong></span>
+              <span>الحجيرة: <strong className="text-cyan-300">{order.compartmentId || '01'}</strong></span>
+              <span>المندوب المعتمد: <strong className="text-white">{order.driverName || 'إسلام عامر'}</strong></span>
+            </div>
+          </div>
+        ) : activeAuth ? (
           <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/40 border border-cyan-500/50 space-y-4 shadow-xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
@@ -369,13 +446,22 @@ export const CustomerOrderDetails: React.FC = () => {
               </span>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-right">
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-right">
               <div>
-                <span className="text-xs text-slate-400 block">رمز فتح الحجيرة للمندوب (OTP):</span>
-                <span className="text-[11px] text-slate-500">مخصص لمرة واحدة فقط لفتح الحجيرة {activeAuth.compartmentId || '01'}</span>
+                <span className="text-xs text-slate-400 block font-medium">حالة تصريح الوصول الرقمي:</span>
+                <span className="text-[11px] text-emerald-400 font-bold">
+                  {order.status === 'SMART_BOX_SECURED'
+                    ? 'تم تأمين الصندوق'
+                    : order.status === 'PACKAGE_DEPOSITED'
+                    ? 'تم إيداع الطلب'
+                    : order.status === 'SMART_BOX_OPENED'
+                    ? 'تم فتح الصندوق'
+                    : 'تم تفويض المندوب'}
+                </span>
               </div>
-              <span className="font-mono text-3xl font-black tracking-widest text-cyan-400">
-                {activeAuth.otp}
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 font-bold text-xs">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>تصريح رقمي مؤمن (OTP صالح لمرة واحدة)</span>
               </span>
             </div>
 
@@ -386,17 +472,49 @@ export const CustomerOrderDetails: React.FC = () => {
               <span>الصلاحية: <strong className="text-amber-300">5 دقائق من وقت الإذن</strong></span>
             </div>
           </div>
-        ) : order.status === 'DRIVER_ARRIVED' ? (
+        ) : order.status === 'DRIVER_ARRIVED' && pendingAuth ? (
           <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-950/90 via-slate-900 to-amber-950/90 border-2 border-amber-500/80 space-y-3.5 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center gap-2 text-amber-400">
               <AlertTriangle className="w-5 h-5 text-amber-400 animate-pulse shrink-0" />
               <h4 className="text-sm sm:text-base font-black text-white">
-                المندوب وصل للصندوق — هل تسمح له بفتح صندوقك؟
+                {pendingAuth.isRetry
+                  ? 'المندوب يطلب إذنًا جديدًا لفتح الصندوق'
+                  : 'المندوب يطلب إذن فتح الصندوق'}
               </h4>
             </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">رقم الطلب</span>
+                <span className="font-mono text-white font-bold">#{order.id}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">الصندوق الذكي</span>
+                <span className="font-mono text-amber-300 font-bold">{order.smartBoxId || 'BOX-102'}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">الحجيرة</span>
+                <span className="font-mono text-cyan-300 font-bold">{order.compartmentId || '01'}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block">المندوب المعتمد</span>
+                <span className="text-white font-bold truncate block">{order.driverName || 'إسلام عامر'}</span>
+              </div>
+            </div>
+
+            {pendingAuth.isRetry && (
+              <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-200 text-xs flex items-center justify-between">
+                <span className="text-slate-300">سبب الطلب:</span>
+                <strong className="font-bold text-amber-300">انتهت مهلة الإيداع السابقة</strong>
+              </div>
+            )}
+
             <p className="text-xs text-slate-300 leading-relaxed">
-              المندوب أمام الصندوق الذكي {order.smartBoxId || 'BOX-102'} الآن. بالضغط على &quot;السماح بفتح الصندوق&quot;، سيتم إصدار تصريح رقمي للمندوب صالح لمدة 5 دقائق لفتح الحجيرة {order.compartmentId || '01'}.
+              {pendingAuth.isRetry
+                ? 'انتهت مهلة الإيداع السابقة ولم يتم إيداع الشحنة. يطلب المندوب إذن فتح جديد صالح لمدة 5 دقائق لإتمام الإيداع بأمان.'
+                : `المندوب أمام الصندوق الذكي ${order.smartBoxId || 'BOX-102'} الآن. بالضغط على "السماح بالفتح"، سيتم إصدار تصريح رقمي جديد للمندوب صالح لمدة 5 دقائق لفتح الحجيرة ${order.compartmentId || '01'}.`}
             </p>
+
             <div className="flex items-center gap-3 pt-1">
               <button
                 id="btn-details-authorize-access"
@@ -405,7 +523,7 @@ export const CustomerOrderDetails: React.FC = () => {
                 className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>{isAuthorizing ? 'جارٍ الاعتماد وإصدار التصريح...' : 'السماح بفتح الصندوق'}</span>
+                <span>{isAuthorizing ? 'جارٍ الاعتماد وإصدار التصريح...' : 'السماح بالفتح'}</span>
               </button>
               <button
                 id="btn-details-reject-access"
@@ -416,7 +534,55 @@ export const CustomerOrderDetails: React.FC = () => {
               </button>
             </div>
           </div>
-        ) : order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && order.status !== 'REJECTED' ? (
+        ) : order.status === 'DRIVER_ARRIVED' && expiredAuth && !pendingAuth ? (
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-950/80 via-slate-900 to-slate-950 border-2 border-amber-500/70 space-y-3.5 shadow-2xl animate-in zoom-in-95 text-center sm:text-right">
+            <div className="flex items-center gap-2 text-amber-400">
+              <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+              <h4 className="text-sm sm:text-base font-black text-white">
+                انتهت مهلة الإيداع
+              </h4>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              الصندوق مغلق وآمن.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 max-w-sm text-xs font-bold text-slate-200 pt-1">
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center gap-2">
+                <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>الصندوق مقفول</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center gap-2">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>الباب مغلق ✓</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-800/80 text-amber-300 text-xs font-semibold text-center">
+              في انتظار طلب جديد من المندوب.
+            </div>
+          </div>
+        ) : order.status === 'DRIVER_ARRIVED' && rejectedAuth && !pendingAuth ? (
+          <div className="p-5 rounded-2xl bg-slate-900 border-2 border-rose-800/80 space-y-3 shadow-xl text-center sm:text-right">
+            <div className="flex items-center gap-2 text-rose-400">
+              <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
+              <h4 className="text-sm font-bold text-white">تم رفض طلب فتح الصندوق</h4>
+            </div>
+            <p className="text-xs text-slate-300">
+              لقد قمت برفض طلب المندوب لفتح الصندوق. الصندوق مقفول ومؤمن تماماً.
+            </p>
+          </div>
+        ) : order.status === 'DRIVER_ARRIVED' ? (
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 text-xs">
+            <div className="flex items-center gap-2 text-amber-400 font-bold">
+              <Clock className="w-4 h-4 text-amber-400" />
+              <span>المندوب وصل لموقع الصندوق الذكي</span>
+            </div>
+            <p className="text-slate-300">
+              المندوب أمام الصندوق الذكي {order.smartBoxId || 'BOX-102'} الآن. بانتظار قيامه بإرسال طلب إذن الفتح.
+            </p>
+          </div>
+        ) : order.status !== 'CANCELLED' && order.status !== 'REJECTED' ? (
           <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2 text-slate-400">
               <Clock className="w-4 h-4 text-cyan-400" />
@@ -448,7 +614,11 @@ export const CustomerOrderDetails: React.FC = () => {
 
           <button
             id="btn-details-chat"
-            onClick={() => openMerchantChat(order.merchantId || 'merch-5', order.id)}
+            onClick={() => {
+              if (order.merchantId) {
+                openMerchantChat(order.merchantId, order.id);
+              }
+            }}
             className="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center justify-center gap-2"
           >
             <MessageSquare className="w-4 h-4 text-cyan-400" />

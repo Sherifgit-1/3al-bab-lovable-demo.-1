@@ -59,17 +59,11 @@ export const CustomerOrders: React.FC = () => {
     }
   };
 
-  // Customer ID is 'cust-1' or currentUser.id
-  const currentCustomerId = currentUser?.id || 'cust-1';
+  // Customer ID strictly matching current customer
+  const currentCustomerId = currentUser?.role === 'CUSTOMER' ? currentUser.id : currentUser?.id;
 
   // Get all orders belonging to this customer
-  const customerOrders = orders.filter((o) => {
-    return (
-      o.customerId === currentCustomerId ||
-      o.customerId === 'cust-1' ||
-      !o.customerId
-    );
-  });
+  const customerOrders = currentCustomerId ? orders.filter((o) => o.customerId === currentCustomerId) : [];
 
   // Separate orders into Current and Past
   const pastStatuses = ['COMPLETED', 'CANCELLED', 'REJECTED', 'DELIVERY_FAILED'];
@@ -398,7 +392,9 @@ export const CustomerOrders: React.FC = () => {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openMerchantChat(ord.merchantId || 'merch-5', ord.id);
+                        if (ord.merchantId) {
+                          openMerchantChat(ord.merchantId, ord.id);
+                        }
                       }}
                       className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors flex items-center gap-1"
                     >

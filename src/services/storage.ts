@@ -18,6 +18,7 @@ export const DEMO_STORAGE_KEYS = {
   DRIVER_STEP: 'tawseel_demo_driver_step',
   MERCHANT_DRAFTS: 'tawseel_demo_merchant_drafts',
   ACTIVE_MERCHANT_ID: 'tawseel_demo_active_merchant_id',
+  DEMO_MERCHANT_ID: 'tawseel_demo_simulated_merchant_id',
   ACCESS_SESSION: 'tawseel_demo_access_session',
 } as const;
 

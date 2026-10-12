@@ -69,6 +69,8 @@ export interface ISmartBoxService {
   getCompartments(boxId: string): Promise<Compartment[]>;
   reserveCompartment(boxId: string, compartmentId: string, orderId: string): Promise<boolean>;
   releaseCompartment(boxId: string, compartmentId: string): Promise<boolean>;
+  releaseCompartmentsForOrders(orderIds: string[]): SmartBox[];
+  reconcileWithOrders(activeOrderIds: string[]): SmartBox[];
   updateWeight(boxId: string, compartmentId: string, weightKg: number): Promise<void>;
   simulatePhysicalCycle(boxId: string, compartmentId: string, packageWeightKg: number, orderId?: string): Promise<void>;
   secureCompartment(boxId: string, compartmentId: string): Promise<void>;
@@ -94,6 +96,7 @@ export interface ValidateAccessParams {
   smartBoxId: string;
   compartmentId: string;
   otp?: string;
+  authId?: string;
   currentCoordinates?: { lat: number; lng: number };
 }
 
@@ -131,10 +134,17 @@ export interface IAuthorizationService {
   validateAccess(params: ValidateAccessParams): Promise<ValidationResult>;
   generateOTPForEligibleDelivery(orderId: string, driverId: string): Promise<string | null>;
   revokeAuthorization(authId: string, reason: string): Promise<boolean>;
-  getAuthorizationByOrder(orderId: string): Promise<TemporaryAccessAuthorization | undefined>;
+  getAuthorizationByOrder(
+    orderId: string,
+    criteria?: { customerId?: string; driverId?: string; smartBoxId?: string; compartmentId?: string; }
+  ): Promise<TemporaryAccessAuthorization | undefined>;
   getAuthorizationsForBox(boxId: string): Promise<TemporaryAccessAuthorization[]>;
-  completeAccess(orderId: string): Promise<boolean>;
-  isAccessAuthorized(boxId: string, compartmentId: string, orderId: string): Promise<boolean>;
+  completeAccess(
+    orderId: string,
+    authId?: string,
+    criteria?: { customerId?: string; driverId?: string; smartBoxId?: string; compartmentId?: string; }
+  ): Promise<boolean>;
+  isAccessAuthorized(boxId: string, compartmentId: string, orderId: string, driverId?: string): Promise<boolean>;
 }
 
 /**
@@ -154,6 +164,7 @@ export interface IAuditService {
 
   recordSecurityIncident(event: Omit<SecurityEvent, 'id' | 'timestamp'>): Promise<SecurityEvent>;
   getAuditLogs(limit?: number): Promise<AuditLog[]>;
+  getEventsForOrder(orderId: string): Promise<AuditLog[]>;
   getSecurityEvents(): Promise<SecurityEvent[]>;
   resolveSecurityEvent(id: string, actionNote: string): Promise<void>;
 }

@@ -5,6 +5,113 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { ActorRole, AuthUser } from '../types';
+import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from '../services/storage';
+
+export interface DemoMerchantOption {
+  id: string;
+  name: string;
+  nameAr: string;
+  nameEn: string;
+  label: string;
+  category: string;
+  shortName: string;
+}
+
+export const DEMO_MERCHANT_OPTIONS: DemoMerchantOption[] = [
+  {
+    id: 'merch-1',
+    name: 'ميدل إيست تيك (Middle East Tech)',
+    nameAr: 'ميدل إيست تك',
+    nameEn: 'Middle East Tech',
+    label: 'ميدل إيست تك — Middle East Tech — merch-1',
+    category: 'أجهزة وإلكترونيات',
+    shortName: 'ميدل إيست تك',
+  },
+  {
+    id: 'merch-2',
+    name: 'صيدليات النور الرقمية (Care Pharmacy)',
+    nameAr: 'الصيدلية',
+    nameEn: 'Pharmacy B',
+    label: 'الصيدلية — Pharmacy B — merch-2',
+    category: 'صيدليات ومستلزمات طبية',
+    shortName: 'الصيدلية',
+  },
+  {
+    id: 'merch-3',
+    name: 'هايبر ماركت الوادي (Al-Wadi Hyper)',
+    nameAr: 'الوادي',
+    nameEn: 'El Wadi',
+    label: 'الوادي — El Wadi — merch-3',
+    category: 'سوبرماركت ومؤن',
+    shortName: 'الوادي',
+  },
+  {
+    id: 'merch-4',
+    name: 'براند ستور للملابس (BrandStore Fashion)',
+    nameAr: 'براند ستور',
+    nameEn: 'BrandStore Fashion',
+    label: 'براند ستور — BrandStore Fashion — merch-4',
+    category: 'أزياء وملابس',
+    shortName: 'براند ستور',
+  },
+  {
+    id: 'merch-5',
+    name: 'مطعم شاورما الريم (Al-Reem Shawarma)',
+    nameAr: 'مطعم شاورما',
+    nameEn: 'Shawarma Restaurant',
+    label: 'مطعم شاورما — Shawarma Restaurant — merch-5',
+    category: 'مطاعم ومأكولات',
+    shortName: 'مطعم شاورما',
+  },
+];
+
+export const DEMO_MERCHANT_USERS: Record<string, AuthUser> = {
+  'merch-1': {
+    id: 'merch-1',
+    email: 'merchant@demo.tawseel',
+    name: 'ميدل إيست تيك (Middle East Tech)',
+    role: 'MERCHANT',
+    phone: '+20 102 334 5566',
+    title: 'متجر تقني معتمد',
+    details: 'فرع التجمع الخامس - البوابة 3',
+  },
+  'merch-2': {
+    id: 'merch-2',
+    email: 'pharmacy@demo.tawseel',
+    name: 'صيدليات النور الرقمية (Care Pharmacy)',
+    role: 'MERCHANT',
+    phone: '+20 109 887 7665',
+    title: 'صيدلية ومستلزمات طبية معتمدة',
+    details: 'ميدان روكسي، مصر الجديدة',
+  },
+  'merch-3': {
+    id: 'merch-3',
+    email: 'elwadi@demo.tawseel',
+    name: 'هايبر ماركت الوادي (Al-Wadi Hyper)',
+    role: 'MERCHANT',
+    phone: '+20 101 223 3445',
+    title: 'هايبر ماركت وسوبرماركت ومؤن',
+    details: 'شارع التسعين الشمالي، التجمع الخامس',
+  },
+  'merch-4': {
+    id: 'merch-4',
+    email: 'brandstore@demo.tawseel',
+    name: 'براند ستور للملابس (BrandStore Fashion)',
+    role: 'MERCHANT',
+    phone: '+20 105 443 2211',
+    title: 'أزياء وملابس ماركات عالمية',
+    details: 'سيتي ستارز، مدينة نصر، القاهرة',
+  },
+  'merch-5': {
+    id: 'merch-5',
+    email: 'shawarma@demo.tawseel',
+    name: 'مطعم شاورما الريم (Al-Reem Shawarma)',
+    role: 'MERCHANT',
+    phone: '+20 106 554 4332',
+    title: 'مطاعم ومأكولات سريعة معتمدة',
+    details: 'شارع التسعين الجنوبي - التجمع الخامس',
+  },
+};
 
 export interface DemoAccountCredential {
   role: ActorRole;
@@ -41,15 +148,7 @@ export const DEMO_ACCOUNTS: DemoAccountCredential[] = [
     email: 'merchant@demo.tawseel',
     password: 'Demo123!',
     phone: '+20 102 334 5566',
-    user: {
-      id: 'merch-1',
-      email: 'merchant@demo.tawseel',
-      name: 'ميدل إيست تيك (Middle East Tech)',
-      role: 'MERCHANT',
-      phone: '+20 102 334 5566',
-      title: 'متجر تقني معتمد',
-      details: 'فرع التجمع الخامس - البوابة 3',
-    },
+    user: DEMO_MERCHANT_USERS['merch-1'],
   },
   {
     role: 'DRIVER',
@@ -87,13 +186,15 @@ export const DEMO_ACCOUNTS: DemoAccountCredential[] = [
   },
 ];
 
-interface AuthContextType {
+export interface AuthContextType {
   isAuthenticated: boolean;
   currentUser: AuthUser | null;
   role: ActorRole | null;
   login: (identifier: string, pass: string, rememberMe?: boolean) => { success: boolean; error?: string };
   logout: () => void;
   switchDemoRole: (newRole: ActorRole) => void;
+  switchDemoMerchant: (merchantId: string) => void;
+  currentDemoMerchantId: string;
   unauthorizedNotice: string | null;
   setUnauthorizedNotice: (msg: string | null) => void;
   isDemoMode: boolean;
@@ -105,11 +206,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const STORAGE_KEY_AUTH = 'tawseel_demo_auth_session';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [currentDemoMerchantId, setCurrentDemoMerchantId] = useState<string>(() => {
+    return loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
+  });
+
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_AUTH) || sessionStorage.getItem(STORAGE_KEY_AUTH);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (parsed?.role === 'MERCHANT') {
+          const storedMerchId = loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
+          return DEMO_MERCHANT_USERS[storedMerchId] || DEMO_MERCHANT_USERS['merch-1'];
+        }
+        return parsed;
       }
     } catch {
       // Ignore parse errors
@@ -142,6 +252,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [unauthorizedNotice]);
 
+  const switchDemoMerchant = (merchantId: string) => {
+    if (!DEMO_MERCHANT_USERS[merchantId]) return;
+    const targetUser = DEMO_MERCHANT_USERS[merchantId];
+    setCurrentDemoMerchantId(merchantId);
+    saveToStorage(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, merchantId);
+
+    if (currentUser?.role === 'MERCHANT') {
+      setCurrentUser(targetUser);
+      setUnauthorizedNotice(null);
+      try {
+        localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(targetUser));
+      } catch {
+        // Ignore
+      }
+    }
+  };
+
   const login = (
     identifier: string,
     pass: string,
@@ -166,11 +293,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    setCurrentUser(matchedAccount.user);
+    let userToSet = matchedAccount.user;
+    if (matchedAccount.role === 'MERCHANT') {
+      const storedMerchId = loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
+      if (DEMO_MERCHANT_USERS[storedMerchId]) {
+        userToSet = DEMO_MERCHANT_USERS[storedMerchId];
+        setCurrentDemoMerchantId(storedMerchId);
+      }
+    }
+
+    setCurrentUser(userToSet);
     setUnauthorizedNotice(null);
 
     try {
-      const payload = JSON.stringify(matchedAccount.user);
+      const payload = JSON.stringify(userToSet);
       if (rememberMe) {
         localStorage.setItem(STORAGE_KEY_AUTH, payload);
       } else {
@@ -195,6 +331,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchDemoRole = (newRole: ActorRole) => {
+    if (newRole === 'MERCHANT') {
+      const storedMerchId = loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
+      const targetUser = DEMO_MERCHANT_USERS[storedMerchId] || DEMO_MERCHANT_USERS['merch-1'];
+      setCurrentUser(targetUser);
+      setCurrentDemoMerchantId(targetUser.id);
+      setUnauthorizedNotice(null);
+      try {
+        localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(targetUser));
+      } catch {
+        // Ignore
+      }
+      return;
+    }
+
     const target = DEMO_ACCOUNTS.find((a) => a.role === newRole);
     if (target) {
       setCurrentUser(target.user);
@@ -214,6 +364,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     login,
     logout,
     switchDemoRole,
+    switchDemoMerchant,
+    currentDemoMerchantId,
     unauthorizedNotice,
     setUnauthorizedNotice,
     isDemoMode,
