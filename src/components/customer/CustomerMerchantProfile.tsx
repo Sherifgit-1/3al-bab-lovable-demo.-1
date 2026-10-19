@@ -253,7 +253,7 @@ export const CustomerMerchantProfile: React.FC = () => {
             </h2>
           </div>
           <span className="text-xs text-slate-500">
-            صور عالية الدقة للفروع والرفوف والمنيو معتمدة لدى منصة توصيل
+            صور عالية الدقة للفروع والرفوف والمنيو معتمدة لدى منصة 3al-BaB (عالباب)
           </span>
         </div>
 

@@ -178,7 +178,7 @@ export const SimulatedBoxWidget: React.FC<{ isOpen: boolean; onClose: () => void
                     <Shield className="w-3.5 h-3.5 text-cyan-400" />
                     هيكل الخزانة الفيزيائي (BOX-102)
                   </span>
-                  <span className="text-slate-500 font-mono text-[10px]">Tawseel Master v2.4</span>
+                  <span className="text-slate-500 font-mono text-[10px]">3al-BaB Master v2.4</span>
                 </div>
 
                 {/* 4 Compartment Grid */}

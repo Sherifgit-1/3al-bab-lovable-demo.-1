@@ -1,6 +1,6 @@
 {
-  "name": "Tawseel – Smart Delivery Platform",
-  "description": "منصة التوصيل الذكي المتكاملة مع الصناديق الذكية (Smart Box) للعملاء والتجار والمناديب والإدارة مع تحكم أمني مشفر.",
+  "name": "3al-BaB – Smart Delivery Platform",
+  "description": "منصة 3al-BaB (عالباب) للتوصيل المؤتمت المتكاملة مع الصناديق الذكية (Smart Box) للعملاء والتجار والمناديب والإدارة مع تحكم أمني مشفر.",
   "requestFramePermissions": ["camera", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

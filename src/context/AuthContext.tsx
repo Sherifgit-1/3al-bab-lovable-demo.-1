@@ -191,6 +191,8 @@ export interface AuthContextType {
   currentUser: AuthUser | null;
   role: ActorRole | null;
   login: (identifier: string, pass: string, rememberMe?: boolean) => { success: boolean; error?: string };
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  idToken: string | null;
   logout: () => void;
   switchDemoRole: (newRole: ActorRole) => void;
   switchDemoMerchant: (merchantId: string) => void;
@@ -319,8 +321,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
+  const [idToken, setIdToken] = useState<string | null>(null);
+
+  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { signInWithPopup } = await import('firebase/auth');
+      const { auth, googleAuthProvider } = await import('../lib/firebase.ts');
+      const userCredential = await signInWithPopup(auth, googleAuthProvider);
+      const user = userCredential.user;
+      const token = await user.getIdToken();
+      setIdToken(token);
+
+      const authUser: AuthUser = {
+        id: user.uid,
+        email: user.email || 'user@3albab.app',
+        name: user.displayName || 'مستخدم مسجل',
+        role: 'CUSTOMER',
+        phone: user.phoneNumber || '+20 100 000 0000',
+        title: 'عميل مسجل عبر Google',
+      };
+
+      // Sync user profile to PostgreSQL backend
+      try {
+        await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: authUser.name,
+            role: authUser.role,
+          }),
+        });
+      } catch (err) {
+        console.warn('PostgreSQL user sync warning:', err);
+      }
+
+      setCurrentUser(authUser);
+      setUnauthorizedNotice(null);
+
+      try {
+        sessionStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(authUser));
+      } catch {
+        // Ignore
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Google sign-in error:', err);
+      return { success: false, error: err.message || 'فشل تسجيل الدخول عبر Google' };
+    }
+  };
+
   const logout = () => {
     setCurrentUser(null);
+    setIdToken(null);
     setUnauthorizedNotice(null);
     try {
       localStorage.removeItem(STORAGE_KEY_AUTH);
@@ -362,6 +418,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentUser,
     role: currentUser?.role || null,
     login,
+    loginWithGoogle,
+    idToken,
     logout,
     switchDemoRole,
     switchDemoMerchant,

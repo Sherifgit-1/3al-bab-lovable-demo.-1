@@ -32,7 +32,7 @@ export function loadFromStorage<T>(key: string, fallback: T): T {
     const parsed = JSON.parse(raw);
     return parsed as T;
   } catch (err) {
-    console.warn(`[Tawseel Storage] Failed to parse ${key}:`, err);
+    console.warn(`[3al-BaB Storage] Failed to parse ${key}:`, err);
     return fallback;
   }
 }
@@ -44,7 +44,7 @@ export function saveToStorage<T>(key: string, data: T): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(data));
   } catch (err) {
-    console.warn(`[Tawseel Storage] Failed to save ${key}:`, err);
+    console.warn(`[3al-BaB Storage] Failed to save ${key}:`, err);
   }
 }
 
@@ -69,6 +69,6 @@ export function clearAllDemoStorage(): void {
       window.localStorage.removeItem(key);
     });
   } catch (err) {
-    console.warn('[Tawseel Storage] Failed to clear storage:', err);
+    console.warn('[3al-BaB Storage] Failed to clear storage:', err);
   }
 }

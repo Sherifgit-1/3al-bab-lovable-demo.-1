@@ -122,8 +122,11 @@ export const Navbar: React.FC<{
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xl font-bold tracking-tight text-white font-['Cairo']">
-                  توصيل
+                <span className="text-xl font-black tracking-tight text-white font-['Cairo']">
+                  3al-BaB
+                </span>
+                <span className="text-sm font-bold text-slate-300">
+                  عالباب
                 </span>
                 <span className="text-[11px] font-semibold text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded-md border border-cyan-800/50">
                   SMART BOX V3

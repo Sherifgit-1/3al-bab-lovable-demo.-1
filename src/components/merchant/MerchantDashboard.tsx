@@ -241,7 +241,7 @@ export const MerchantDashboard: React.FC = () => {
               {currentMerchant.name}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400">
-              {currentMerchant.address} • متصل مباشرة بمنصة توصيل للإيداع بالصناديق الذكية
+              {currentMerchant.address} • متصل مباشرة بمنصة 3al-BaB (عالباب) للإيداع بالصناديق الذكية
             </p>
           </div>
 

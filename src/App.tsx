@@ -228,7 +228,7 @@ const MainContent: React.FC = () => {
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950/80 py-4 px-6 pb-24 md:pb-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>منصة توصيل الذكية (Tawseel Smart Delivery Platform v3.0) • جميع الحقوق محفوظة</span>
+          <span>منصة عالباب الذكية (3al-BaB Smart Delivery Platform v3.0) • جميع الحقوق محفوظة</span>
           <span className="font-mono text-[11px] text-cyan-500/80">
             تشفير عتادي كامل • إدارة صلاحيات الوصول RBAC • محاكاة الصناديق الذكية IoT
           </span>
