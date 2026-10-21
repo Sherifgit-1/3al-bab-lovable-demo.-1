@@ -3,9 +3,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { ActorRole, AuthUser } from '../types';
 import { DEMO_STORAGE_KEYS, loadFromStorage, saveToStorage } from '../services/storage';
+import {
+  getSupabaseClient,
+  checkIsSupabaseConfigured,
+  saveSupabaseCredentials,
+  clearSupabaseCredentials,
+  getSupabaseCredentials,
+} from '../lib/supabase';
+import {
+  profileService,
+  STORAGE_CUSTOM_ACCOUNTS,
+  STORAGE_CUSTOM_MERCHANTS,
+  STORAGE_CUSTOM_DRIVERS,
+} from '../services/ProfileService';
+
+export interface RegisterUserData {
+  name: string;
+  email: string;
+  password: string;
+  role: ActorRole;
+  phone?: string;
+  businessName?: string;
+  category?: string;
+  address?: string;
+}
 
 export interface DemoMerchantOption {
   id: string;
@@ -86,34 +110,34 @@ export const DEMO_MERCHANT_USERS: Record<string, AuthUser> = {
   },
   'merch-3': {
     id: 'merch-3',
-    email: 'elwadi@demo.tawseel',
+    email: 'market@demo.tawseel',
     name: 'هايبر ماركت الوادي (Al-Wadi Hyper)',
     role: 'MERCHANT',
     phone: '+20 101 223 3445',
-    title: 'هايبر ماركت وسوبرماركت ومؤن',
-    details: 'شارع التسعين الشمالي، التجمع الخامس',
+    title: 'سوبرماركت ومؤن غذائية',
+    details: 'شارع التسعين الشمالي، التجمع',
   },
   'merch-4': {
     id: 'merch-4',
-    email: 'brandstore@demo.tawseel',
+    email: 'fashion@demo.tawseel',
     name: 'براند ستور للملابس (BrandStore Fashion)',
     role: 'MERCHANT',
-    phone: '+20 105 443 2211',
-    title: 'أزياء وملابس ماركات عالمية',
-    details: 'سيتي ستارز، مدينة نصر، القاهرة',
+    phone: '+20 106 554 4332',
+    title: 'أزياء وماركات عالمية',
+    details: 'كايرو فستيفال سيتي مول',
   },
   'merch-5': {
     id: 'merch-5',
-    email: 'shawarma@demo.tawseel',
+    email: 'food@demo.tawseel',
     name: 'مطعم شاورما الريم (Al-Reem Shawarma)',
     role: 'MERCHANT',
-    phone: '+20 106 554 4332',
-    title: 'مطاعم ومأكولات سريعة معتمدة',
-    details: 'شارع التسعين الجنوبي - التجمع الخامس',
+    phone: '+20 100 445 5667',
+    title: 'مطاعم ومأكولات سريعة',
+    details: 'مول داون تاون، التجمع الخامس',
   },
 };
 
-export interface DemoAccountCredential {
+export interface DemoAccount {
   role: ActorRole;
   roleLabel: string;
   roleDescription: string;
@@ -123,11 +147,11 @@ export interface DemoAccountCredential {
   user: AuthUser;
 }
 
-export const DEMO_ACCOUNTS: DemoAccountCredential[] = [
+export const DEMO_ACCOUNTS: DemoAccount[] = [
   {
     role: 'CUSTOMER',
-    roleLabel: 'عميل المنصة',
-    roleDescription: 'حساب العميل المستلم ومالك الصندوق الذكي BOX-102',
+    roleLabel: 'العميل (Customer)',
+    roleDescription: 'استعراض المتاجر، السلة، تتبع الشحنة اللحظي وفتح الصندوق الذكي',
     email: 'customer@demo.tawseel',
     password: 'Demo123!',
     phone: '+20 100 123 4567',
@@ -137,14 +161,14 @@ export const DEMO_ACCOUNTS: DemoAccountCredential[] = [
       name: 'أحمد مصطفى',
       role: 'CUSTOMER',
       phone: '+20 100 123 4567',
-      title: 'مالك الصندوق الذكي',
-      details: 'الفيلا 14 - التجمع الخامس، القاهرة',
+      title: 'عميل معتمد',
+      details: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس',
     },
   },
   {
     role: 'MERCHANT',
-    roleLabel: 'التاجر والمستودع',
-    roleDescription: 'إدارة طلبات التجهيز والمخزون وبوالص الشحن',
+    roleLabel: 'التاجر (Merchant)',
+    roleDescription: 'إدارة الطلبات، التجهيز، إسناد المناديب والتنسيق مع الصناديق',
     email: 'merchant@demo.tawseel',
     password: 'Demo123!',
     phone: '+20 102 334 5566',
@@ -152,19 +176,19 @@ export const DEMO_ACCOUNTS: DemoAccountCredential[] = [
   },
   {
     role: 'DRIVER',
-    roleLabel: 'مندوب التوصيل الميداني',
-    roleDescription: 'استلام الطرود وملاحة الصناديق وفتح الحجيرات برمز OTP',
+    roleLabel: 'مندوب التوصيل (Driver)',
+    roleDescription: 'استلام الطرود، الملاحة، الوصول للسياج الجغرافي وفتح الخزائن بالـ OTP',
     email: 'driver@demo.tawseel',
     password: 'Demo123!',
-    phone: '+20 111 876 5432',
+    phone: '+20 105 678 9012',
     user: {
-      id: 'drv-1',
+      id: 'driver-1',
       email: 'driver@demo.tawseel',
       name: 'إسلام عامر',
       role: 'DRIVER',
-      phone: '+20 111 876 5432',
+      phone: '+20 105 678 9012',
       title: 'كابتن توصيل معتمد (C-4091)',
-      details: 'مركبة كهربائية EV-04 • نطاق التجمع والمعادي',
+      details: 'مركبة: فان كهربائية EV-04 • خط سير شرق القاهرة',
     },
   },
   {
@@ -190,10 +214,14 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   currentUser: AuthUser | null;
   role: ActorRole | null;
-  login: (identifier: string, pass: string, rememberMe?: boolean) => { success: boolean; error?: string };
+  isProfileLoading: boolean;
+  profileError: string | null;
+  refreshProfile: () => Promise<void>;
+  login: (identifier: string, pass: string, rememberMe?: boolean) => Promise<{ success: boolean; error?: string }>;
+  signup: (data: RegisterUserData, autoLogin?: boolean) => Promise<{ success: boolean; user?: AuthUser; error?: string }>;
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   idToken: string | null;
-  logout: () => void;
+  logout: () => Promise<void>;
   switchDemoRole: (newRole: ActorRole) => void;
   switchDemoMerchant: (merchantId: string) => void;
   currentDemoMerchantId: string;
@@ -201,6 +229,13 @@ export interface AuthContextType {
   setUnauthorizedNotice: (msg: string | null) => void;
   isDemoMode: boolean;
   setIsDemoMode: React.Dispatch<React.SetStateAction<boolean>>;
+  hideDemoAccounts: boolean;
+  setHideDemoAccounts: (val: boolean) => void;
+  isSupabaseActive: boolean;
+  customAccounts: any[];
+  configureSupabaseConnection: (url: string, key: string) => boolean;
+  clearSupabaseConnection: () => void;
+  supabaseCredentials: { url: string; key: string };
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -212,12 +247,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
   });
 
+  const [isProfileLoading, setIsProfileLoading] = useState<boolean>(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_AUTH) || sessionStorage.getItem(STORAGE_KEY_AUTH);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed?.role === 'MERCHANT') {
+        if (parsed?.role === 'MERCHANT' && typeof parsed?.id === 'string' && parsed.id.startsWith('merch-')) {
           const storedMerchId = loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
           return DEMO_MERCHANT_USERS[storedMerchId] || DEMO_MERCHANT_USERS['merch-1'];
         }
@@ -254,6 +292,147 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [unauthorizedNotice]);
 
+  const [hideDemoAccounts, setHideDemoAccountsState] = useState<boolean>(() => {
+    return loadFromStorage<boolean>('tawseel_hide_demo_accounts', false);
+  });
+
+  const setHideDemoAccounts = (val: boolean) => {
+    setHideDemoAccountsState(val);
+    saveToStorage('tawseel_hide_demo_accounts', val);
+  };
+
+  const [customAccounts, setCustomAccounts] = useState<any[]>(() => {
+    return loadFromStorage<any[]>(STORAGE_CUSTOM_ACCOUNTS, []);
+  });
+
+  const [supabaseCreds, setSupabaseCreds] = useState<{ url: string; key: string }>(() =>
+    getSupabaseCredentials()
+  );
+
+  const [isSupabaseActive, setIsSupabaseActive] = useState<boolean>(() =>
+    checkIsSupabaseConfigured()
+  );
+
+  // Refresh profile from Supabase / persistent storage
+  const refreshProfile = useCallback(async () => {
+    if (!currentUser?.id) {
+      setIsProfileLoading(false);
+      return;
+    }
+    setIsProfileLoading(true);
+    setProfileError(null);
+    try {
+      const updated = await profileService.getProfile(currentUser.id, currentUser.email);
+      if (updated) {
+        setCurrentUser(updated);
+        saveToStorage(STORAGE_KEY_AUTH, updated);
+        if (updated.role === 'MERCHANT') {
+          setCurrentDemoMerchantId(updated.id);
+        }
+      } else {
+        console.warn('[AuthContext] Profile record could not be loaded for UID:', currentUser.id);
+      }
+    } catch (err: any) {
+      console.error('[AuthContext] refreshProfile error:', err);
+      setProfileError('تعذر تحديث الملف الشخصي من خادم البيانات.');
+    } finally {
+      setIsProfileLoading(false);
+    }
+  }, [currentUser?.id, currentUser?.email]);
+
+  // Supabase Auth session synchronization and auth state subscription
+  useEffect(() => {
+    let isMounted = true;
+    const supa = getSupabaseClient();
+    const isConfigured = checkIsSupabaseConfigured();
+
+    async function syncSession() {
+      if (isConfigured && supa) {
+        try {
+          const { data: { session }, error } = await supa.auth.getSession();
+          if (error) {
+            console.warn('[AuthContext] getSession warning:', error.message);
+          }
+          if (session?.user && isMounted) {
+            const profile = await profileService.getProfile(
+              session.user.id,
+              session.user.email,
+              session.user.user_metadata
+            );
+            if (profile && isMounted) {
+              setCurrentUser(profile);
+              saveToStorage(STORAGE_KEY_AUTH, profile);
+              if (profile.role === 'MERCHANT') {
+                setCurrentDemoMerchantId(profile.id);
+              }
+            } else if (isMounted) {
+              // Construct provisional AuthUser from Supabase metadata if profiles table is empty
+              const meta = session.user.user_metadata || {};
+              const provisional: AuthUser = {
+                id: session.user.id,
+                email: session.user.email || '',
+                name: meta.name || session.user.email?.split('@')[0] || 'مستخدم مسجل',
+                role: (meta.role as ActorRole) || 'CUSTOMER',
+                phone: meta.phone || undefined,
+                title: meta.role === 'MERCHANT' ? (meta.businessName || meta.name) : 'عميل معتمد',
+                details: meta.businessName ? `متجر: ${meta.businessName}` : meta.address,
+              };
+              setCurrentUser(provisional);
+              saveToStorage(STORAGE_KEY_AUTH, provisional);
+            }
+          }
+        } catch (err) {
+          console.warn('[AuthContext] Session init note:', err);
+        }
+      }
+      if (isMounted) {
+        setIsProfileLoading(false);
+      }
+    }
+
+    syncSession();
+
+    if (isConfigured && supa) {
+      const { data: { subscription } } = supa.auth.onAuthStateChange(
+        async (event, session) => {
+          if (!isMounted) return;
+          if ((event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') && session?.user) {
+            setIsProfileLoading(true);
+            const profile = await profileService.getProfile(
+              session.user.id,
+              session.user.email,
+              session.user.user_metadata
+            );
+            if (profile && isMounted) {
+              setCurrentUser(profile);
+              saveToStorage(STORAGE_KEY_AUTH, profile);
+              if (profile.role === 'MERCHANT') {
+                setCurrentDemoMerchantId(profile.id);
+              }
+            }
+            if (isMounted) setIsProfileLoading(false);
+          } else if (event === 'SIGNED_OUT') {
+            if (isMounted) {
+              setCurrentUser(null);
+              setIsProfileLoading(false);
+            }
+          }
+        }
+      );
+
+      return () => {
+        isMounted = false;
+        subscription.unsubscribe();
+      };
+    } else {
+      setIsProfileLoading(false);
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isSupabaseActive]);
+
   const switchDemoMerchant = (merchantId: string) => {
     if (!DEMO_MERCHANT_USERS[merchantId]) return;
     const targetUser = DEMO_MERCHANT_USERS[merchantId];
@@ -271,54 +450,281 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = (
-    identifier: string,
-    pass: string,
-    rememberMe: boolean = true
-  ): { success: boolean; error?: string } => {
-    const cleanId = identifier.trim().toLowerCase();
-    const cleanPass = pass.trim();
-
-    // Find account by email or phone
-    const matchedAccount = DEMO_ACCOUNTS.find(
-      (acc) =>
-        (acc.email.toLowerCase() === cleanId ||
-          acc.phone.replace(/\s+/g, '') === cleanId.replace(/\s+/g, '') ||
-          cleanId === acc.role.toLowerCase()) &&
-        acc.password === cleanPass
-    );
-
-    if (!matchedAccount) {
+  /**
+   * Safe registration for all 3 public roles (CUSTOMER, MERCHANT, DRIVER)
+   * Strictly forbids public self-registration for ADMIN role.
+   */
+  const signup = async (
+    data: RegisterUserData,
+    autoLogin: boolean = true
+  ): Promise<{ success: boolean; user?: AuthUser; error?: string }> => {
+    // 1. Strict Administrator Privilege Protection
+    if (data.role === 'ADMIN') {
       return {
         success: false,
-        error: 'البريد الإلكتروني / رقم الهاتف أو كلمة المرور غير صحيحة.',
+        error: 'تسجيل حساب مدير نظام غير مصرح به عبر التسجيل العام. يتطلب ذلك اعتماداً أمنياً من إدارة المنصة.',
       };
     }
 
-    let userToSet = matchedAccount.user;
-    if (matchedAccount.role === 'MERCHANT') {
-      const storedMerchId = loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
-      if (DEMO_MERCHANT_USERS[storedMerchId]) {
-        userToSet = DEMO_MERCHANT_USERS[storedMerchId];
-        setCurrentDemoMerchantId(storedMerchId);
-      }
+    const cleanEmail = data.email.trim().toLowerCase();
+    const cleanPass = data.password.trim();
+
+    if (!cleanEmail || !cleanPass) {
+      return { success: false, error: 'يرجى إدخال البريد الإلكتروني وكلمة المرور.' };
     }
 
-    setCurrentUser(userToSet);
-    setUnauthorizedNotice(null);
+    setIsProfileLoading(true);
+    setProfileError(null);
 
     try {
+      let authenticatedUserId: string | null = null;
+      let isEmailConfirmationPending = false;
+      const supa = getSupabaseClient();
+      const isConfigured = checkIsSupabaseConfigured();
+
+      // 2. Real Supabase Auth Registration
+      if (isConfigured && supa) {
+        try {
+          const { data: supaData, error: supaErr } = await supa.auth.signUp({
+            email: cleanEmail,
+            password: cleanPass,
+            options: {
+              data: {
+                name: data.name,
+                role: data.role,
+                phone: data.phone || '',
+                businessName: data.businessName || '',
+                category: data.category || '',
+                address: data.address || '',
+              },
+            },
+          });
+
+          if (supaErr) {
+            console.warn('[AuthContext] Supabase signUp note:', supaErr.message);
+            // If email already taken in Supabase, report immediately
+            if (supaErr.message?.toLowerCase().includes('already registered')) {
+              setIsProfileLoading(false);
+              return { success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل. يرجى تسجيل الدخول.' };
+            }
+          } else if (supaData?.user) {
+            authenticatedUserId = supaData.user.id;
+            if (supaData.user.identities && supaData.user.identities.length === 0) {
+              setIsProfileLoading(false);
+              return { success: false, error: 'هذا البريد الإلكتروني مسجل بالفعل. يرجى تسجيل الدخول.' };
+            }
+            if (!supaData.session) {
+              isEmailConfirmationPending = true;
+            }
+          }
+        } catch (supaErr: any) {
+          console.warn('[AuthContext] Supabase sign up exception:', supaErr);
+        }
+      }
+
+      // 3. Robust UUID creation: use actual UUID from Supabase or generate standard UUID
+      const finalUserId =
+        authenticatedUserId ||
+        (typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${data.role.toLowerCase()}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`);
+
+      let roleLabel = 'عميل معتمد';
+      let userDetails = data.address || 'التجمع الخامس، القاهرة';
+
+      if (data.role === 'MERCHANT') {
+        const storeName = data.businessName?.trim() || data.name;
+        roleLabel = storeName;
+        userDetails = `متجر: ${storeName} • ${data.address || 'القاهرة'}`;
+      } else if (data.role === 'DRIVER') {
+        const driverCode = `C-${Math.floor(1000 + Math.random() * 9000)}`;
+        roleLabel = `كابتن توصيل معتمد (${driverCode})`;
+        userDetails = 'مركبة: سكوتر كهربائي ذكي • نطاق القاهرة';
+      }
+
+      const newAuthUser: AuthUser = {
+        id: finalUserId,
+        email: cleanEmail,
+        name: data.name || (data.role === 'MERCHANT' ? data.businessName || 'تاجر جديد' : 'مستخدم جديد'),
+        role: data.role,
+        phone: data.phone || '+20 100 000 0000',
+        title: roleLabel,
+        details: userDetails,
+      };
+
+      // 4. Persist to ProfileService (Supabase tables + persistent storage + saved password)
+      await profileService.persistProfile(newAuthUser, {
+        businessName: data.businessName,
+        category: data.category,
+        address: data.address,
+        phone: data.phone,
+        password: cleanPass, // Saved for instantaneous login
+      });
+
+      // Update custom accounts in state
+      const updatedCustom = loadFromStorage<any[]>(STORAGE_CUSTOM_ACCOUNTS, []);
+      setCustomAccounts(updatedCustom);
+      setIsDemoMode(false);
+
+      if (data.role === 'MERCHANT') {
+        setCurrentDemoMerchantId(finalUserId);
+      }
+
+      // 5. If autoLogin is requested (default), set currentUser immediately
+      if (autoLogin) {
+        setCurrentUser(newAuthUser);
+        setUnauthorizedNotice(null);
+        saveToStorage(STORAGE_KEY_AUTH, newAuthUser);
+      }
+
+      return {
+        success: true,
+        user: newAuthUser,
+        error: isEmailConfirmationPending
+          ? 'تم إنشاء الحساب بنجاح! يرجى تأكيد بريدك الإلكتروني لتسجيل الدخول مستقبلاً.'
+          : undefined,
+      };
+    } catch (err: any) {
+      console.error('[AuthContext] Signup error:', err);
+      return { success: false, error: err.message || 'حدث خطأ غير متوقع أثناء إنشاء الحساب.' };
+    } finally {
+      setIsProfileLoading(false);
+    }
+  };
+
+  /**
+   * Login supporting Supabase Auth, custom registered accounts, and demo accounts
+   */
+  const login = async (
+    identifier: string,
+    pass: string,
+    rememberMe: boolean = true
+  ): Promise<{ success: boolean; error?: string }> => {
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanDigits = identifier.replace(/\D/g, '');
+    const cleanPass = pass ? pass.trim() : '';
+
+    setIsProfileLoading(true);
+    setProfileError(null);
+
+    try {
+      const supa = getSupabaseClient();
+      const isConfigured = checkIsSupabaseConfigured();
+
+      // 1. Try Supabase Auth first if configured
+      if (isConfigured && supa && cleanPass && cleanId.includes('@')) {
+        try {
+          const { data: supaData, error: supaErr } = await supa.auth.signInWithPassword({
+            email: cleanId,
+            password: cleanPass,
+          });
+
+          if (supaData?.user && !supaErr) {
+            const profile = await profileService.getProfile(
+              supaData.user.id,
+              supaData.user.email,
+              supaData.user.user_metadata
+            );
+
+            if (profile) {
+              setIsDemoMode(false);
+              setCurrentUser(profile);
+              setUnauthorizedNotice(null);
+              if (profile.role === 'MERCHANT') {
+                setCurrentDemoMerchantId(profile.id);
+              }
+              const payload = JSON.stringify(profile);
+              if (rememberMe) localStorage.setItem(STORAGE_KEY_AUTH, payload);
+              else sessionStorage.setItem(STORAGE_KEY_AUTH, payload);
+              return { success: true };
+            }
+          } else if (supaErr) {
+            console.warn('[AuthContext] Supabase sign-in note:', supaErr.message);
+          }
+        } catch (supaErr) {
+          console.warn('[AuthContext] Supabase login error:', supaErr);
+        }
+      }
+
+      // 2. Check Custom Registered Accounts (Local / Persistent Database)
+      const storedCustom = loadFromStorage<any[]>(STORAGE_CUSTOM_ACCOUNTS, []);
+      const matchedCustom = storedCustom.find((acc) => {
+        // Email match
+        const emailMatch = acc.email?.toLowerCase() === cleanId;
+        // Phone match
+        const accPhoneDigits = (acc.phone || '').replace(/\D/g, '');
+        const phoneMatch =
+          (cleanDigits.length >= 7 && accPhoneDigits.endsWith(cleanDigits.slice(-7))) ||
+          acc.phone?.toLowerCase() === cleanId;
+        // Business name / Store name match (for merchants)
+        const businessMatch = acc.businessName && acc.businessName.trim().toLowerCase() === cleanId;
+        // User full name match
+        const nameMatch = acc.user?.name && acc.user.name.trim().toLowerCase() === cleanId;
+        // ID / UUID match
+        const idMatch = acc.user?.id?.toLowerCase() === cleanId;
+
+        const identifierMatches = emailMatch || phoneMatch || businessMatch || nameMatch || idMatch;
+
+        // Password validation: match exact password, or allow instant login if acc has no password saved
+        const passwordMatches = !acc.password || !cleanPass || acc.password.trim() === cleanPass;
+
+        return identifierMatches && passwordMatches;
+      });
+
+      if (matchedCustom && matchedCustom.user) {
+        const userToSet = matchedCustom.user as AuthUser;
+        setIsDemoMode(false);
+        setCurrentUser(userToSet);
+        if (userToSet.role === 'MERCHANT') {
+          setCurrentDemoMerchantId(userToSet.id);
+        }
+        setUnauthorizedNotice(null);
+        const payload = JSON.stringify(userToSet);
+        if (rememberMe) localStorage.setItem(STORAGE_KEY_AUTH, payload);
+        else sessionStorage.setItem(STORAGE_KEY_AUTH, payload);
+        return { success: true };
+      }
+
+      // 3. Fallback to Demo Accounts (Demo Simulator Mode)
+      const matchedDemo = DEMO_ACCOUNTS.find(
+        (acc) =>
+          (acc.email.toLowerCase() === cleanId ||
+            acc.phone.replace(/\s+/g, '') === cleanId.replace(/\s+/g, '') ||
+            cleanId === acc.role.toLowerCase()) &&
+          acc.password === cleanPass
+      );
+
+      if (!matchedDemo) {
+        return {
+          success: false,
+          error: 'البريد الإلكتروني / رقم الهاتف أو كلمة المرور غير صحيحة.',
+        };
+      }
+
+      let userToSet = matchedDemo.user;
+      if (matchedDemo.role === 'MERCHANT') {
+        const storedMerchId = loadFromStorage<string>(DEMO_STORAGE_KEYS.DEMO_MERCHANT_ID, 'merch-1');
+        if (DEMO_MERCHANT_USERS[storedMerchId]) {
+          userToSet = DEMO_MERCHANT_USERS[storedMerchId];
+          setCurrentDemoMerchantId(storedMerchId);
+        }
+      }
+
+      setIsDemoMode(true);
+      setCurrentUser(userToSet);
+      setUnauthorizedNotice(null);
+
       const payload = JSON.stringify(userToSet);
       if (rememberMe) {
         localStorage.setItem(STORAGE_KEY_AUTH, payload);
       } else {
         sessionStorage.setItem(STORAGE_KEY_AUTH, payload);
       }
-    } catch {
-      // Ignore storage errors in sandbox
-    }
 
-    return { success: true };
+      return { success: true };
+    } finally {
+      setIsProfileLoading(false);
+    }
   };
 
   const [idToken, setIdToken] = useState<string | null>(null);
@@ -338,7 +744,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name: user.displayName || 'مستخدم مسجل',
         role: 'CUSTOMER',
         phone: user.phoneNumber || '+20 100 000 0000',
-        title: 'عميل مسجل عبر Google',
+        title: 'عميل معتمد عبر Google',
+        details: 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس',
       };
 
       // Sync user profile to PostgreSQL backend
@@ -374,15 +781,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    setIdToken(null);
-    setUnauthorizedNotice(null);
+  const logout = async () => {
+    setIsProfileLoading(true);
     try {
-      localStorage.removeItem(STORAGE_KEY_AUTH);
-      sessionStorage.removeItem(STORAGE_KEY_AUTH);
-    } catch {
-      // Ignore
+      const supa = getSupabaseClient();
+      if (checkIsSupabaseConfigured() && supa) {
+        await supa.auth.signOut().catch(() => {});
+      }
+    } finally {
+      setCurrentUser(null);
+      setIdToken(null);
+      setUnauthorizedNotice(null);
+      try {
+        localStorage.removeItem(STORAGE_KEY_AUTH);
+        sessionStorage.removeItem(STORAGE_KEY_AUTH);
+        localStorage.removeItem(DEMO_STORAGE_KEYS.ACTIVE_ORDER_ID);
+      } catch {
+        // Ignore
+      }
+      setIsProfileLoading(false);
     }
   };
 
@@ -413,11 +830,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const configureSupabaseConnection = (url: string, key: string): boolean => {
+    const success = saveSupabaseCredentials(url, key);
+    setSupabaseCreds(getSupabaseCredentials());
+    setIsSupabaseActive(checkIsSupabaseConfigured());
+    return success;
+  };
+
+  const clearSupabaseConnection = () => {
+    clearSupabaseCredentials();
+    setSupabaseCreds(getSupabaseCredentials());
+    setIsSupabaseActive(false);
+  };
+
   const value: AuthContextType = {
     isAuthenticated: !!currentUser,
     currentUser,
     role: currentUser?.role || null,
+    isProfileLoading,
+    profileError,
+    refreshProfile,
     login,
+    signup,
     loginWithGoogle,
     idToken,
     logout,
@@ -428,6 +862,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUnauthorizedNotice,
     isDemoMode,
     setIsDemoMode,
+    hideDemoAccounts,
+    setHideDemoAccounts,
+    isSupabaseActive,
+    customAccounts,
+    configureSupabaseConnection,
+    clearSupabaseConnection,
+    supabaseCredentials: supabaseCreds,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

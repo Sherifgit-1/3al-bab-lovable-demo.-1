@@ -99,11 +99,11 @@ export const CustomerHome: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/80 px-2.5 py-0.5 rounded-full border border-cyan-800/60">
-                حساب موثق بالرقم القومي • Cairo Master
+                {currentUser?.email ? `حساب معتمد • ${currentUser.email}` : 'حساب موثق بالرقم القومي • 3al-BaB'}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white font-['Cairo'] tracking-tight">
-              مرحباً بك مجدداً، أحمد مصطفى
+              مرحبًا بك، {currentUser?.name || 'العميل'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-cyan-400" />

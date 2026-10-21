@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "User profile containing authentication and role details",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Auth UID of the user" },
+        "email": { "type": "string", "description": "Email address" },
+        "name": { "type": "string", "description": "Display name of the user" },
+        "role": { "type": "string", "enum": ["CUSTOMER", "MERCHANT", "DRIVER", "ADMIN"], "description": "Access role" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "orders": {
+      "title": "Order",
+      "description": "Delivery order with status tracking and smart box assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique order identifier" },
+        "customerId": { "type": "string", "description": "Customer UID" },
+        "customerName": { "type": "string", "description": "Customer display name" },
+        "merchantId": { "type": "string", "description": "Merchant ID" },
+        "merchantName": { "type": "string", "description": "Merchant business name" },
+        "driverId": { "type": "string", "description": "Assigned driver ID" },
+        "driverName": { "type": "string", "description": "Driver name" },
+        "smartBoxId": { "type": "string", "description": "Assigned smart box ID" },
+        "compartmentId": { "type": "string", "description": "Assigned compartment" },
+        "status": { "type": "string", "description": "Order status" },
+        "total": { "type": "number", "description": "Total order amount" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "customerId", "merchantId", "status"]
+    },
+    "smartBoxes": {
+      "title": "SmartBox",
+      "description": "Physical smart delivery locker unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Hardware Box ID" },
+        "label": { "type": "string", "description": "Locker label" },
+        "address": { "type": "string", "description": "Location address" },
+        "totalCompartments": { "type": "number", "description": "Total compartments count" },
+        "isOnline": { "type": "boolean", "description": "IoT connectivity flag" }
+      },
+      "required": ["id", "label", "address"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "users" },
+      "description": "Collection of user profiles"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "orders" },
+      "description": "Collection of platform orders"
+    },
+    "/smartBoxes/{boxId}": {
+      "schema": { "$ref": "smartBoxes" },
+      "description": "Collection of registered smart box lockers"
+    }
+  }
+}

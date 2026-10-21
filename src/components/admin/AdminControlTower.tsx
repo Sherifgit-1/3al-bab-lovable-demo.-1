@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   ShieldCheck,
   Cpu,
@@ -24,6 +25,7 @@ import {
 
 export const AdminControlTower: React.FC = () => {
   const { adminView, setAdminView, securityEvents, auditLogs } = useApp();
+  const { currentUser } = useAuth();
 
   const [selectedCluster, setSelectedCluster] = useState<string>('التجمع الخامس');
 
@@ -41,18 +43,18 @@ export const AdminControlTower: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-blue-400 bg-blue-950/80 px-2.5 py-0.5 rounded-full border border-blue-800/60">
-                برج المراقبة والتحكم المركزي • Enterprise Ops
+              <span className="text-xs font-semibold text-blue-400 bg-blue-950/80 px-2.5 py-0.5 rounded-full border border-blue-800/60 font-mono">
+                {currentUser?.title || 'مدير العمليات المركزية والعتاد'} • SecOps Level-4
               </span>
               <span className="text-[11px] text-slate-400 font-mono">
-                MQTT Broker Cluster: Cairo-01 (100% Operational)
+                {currentUser?.email || 'SecOps Cairo-01 Cluster'}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white font-['Cairo'] tracking-tight">
-              لوحة القيادة المركزية ومراقبة العمليات (Control Tower)
+              مرحبًا بك، {currentUser?.name || 'مدير العمليات المركزية'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400">
-              إدارة أسطول الصناديق الذكية، مراقبة الشبكة، وتتبع أمان الطرود في نطاق جمهورية مصر العربية.
+              لوحة القيادة المركزية ومراقبة العمليات (Control Tower) • إدارة أسطول الصناديق الذكية وشبكة التوصيل المؤتمت.
             </p>
           </div>
 

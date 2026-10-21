@@ -61,6 +61,7 @@ export const Navbar: React.FC<{
     currentDemoMerchantId,
     isDemoMode,
     setIsDemoMode,
+    hideDemoAccounts,
   } = useAuth();
 
   const [showNotifications, setShowNotifications] = useState(false);
@@ -238,9 +239,11 @@ export const Navbar: React.FC<{
             {role === 'DRIVER' && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs">
                 <Truck className="w-4 h-4 text-amber-400" />
-                <span className="text-white font-bold">تطبيق المندوب الميداني</span>
+                <span className="text-white font-bold">{currentUser?.name || 'تطبيق المندوب الميداني'}</span>
                 <span className="text-slate-600">|</span>
-                <span className="text-amber-300 font-mono text-[11px]">كود C-4091</span>
+                <span className="text-amber-300 font-mono text-[11px]">
+                  {currentUser?.title?.match(/C-\d+/)?.[0] || 'مندوب معتمد'}
+                </span>
               </div>
             )}
 
@@ -471,8 +474,8 @@ export const Navbar: React.FC<{
         </div>
       </div>
 
-      {/* Developer / Demo Mode Panel (ONLY visible when isDemoMode is toggled ON) */}
-      {isDemoMode && (
+      {/* Developer / Demo Mode Panel (ONLY visible when isDemoMode is toggled ON and demo accounts not hidden) */}
+      {isDemoMode && !hideDemoAccounts && (
         <div className="bg-slate-900/95 border-t border-amber-900/50 px-2 sm:px-6 py-1 sm:py-2 shadow-inner">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2.5 text-xs">
             <div className="flex items-center gap-1.5 text-amber-300 font-bold self-start sm:self-auto text-[11px] sm:text-xs">
@@ -506,8 +509,8 @@ export const Navbar: React.FC<{
               })}
             </div>
 
-            {/* Demo Merchant Account Selector — ONLY visible in Demo Merchant mode */}
-            {role === 'MERCHANT' && (
+            {/* Demo Merchant Account Selector — ONLY visible in Demo Merchant mode for demo merchant accounts */}
+            {role === 'MERCHANT' && (!currentUser?.id || currentUser.id.startsWith('merch-')) && (
               <div
                 id="navbar-demo-merchant-selector"
                 className="flex items-center gap-2 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1 rounded-xl text-xs shrink-0 self-start sm:self-auto"

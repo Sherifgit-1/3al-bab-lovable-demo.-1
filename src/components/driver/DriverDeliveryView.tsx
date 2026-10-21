@@ -38,6 +38,7 @@ export const DriverDeliveryView: React.FC = () => {
 
   const {
     orders,
+    drivers,
     activeOrder,
     setActiveOrderId,
     driverStep,
@@ -56,6 +57,11 @@ export const DriverDeliveryView: React.FC = () => {
     authorizations,
     accessSession,
   } = useApp();
+
+  const driverRecord = drivers.find((d) => d.id === currentDriverId);
+  const driverName = currentUser?.name || driverRecord?.name || 'مندوب التوصيل';
+  const driverCode = driverRecord?.code || (currentUser?.title?.match(/C-\d+/)?.[0]) || 'C-4091';
+  const driverVehicle = driverRecord?.vehicle || 'سكوتر كهربائي ذكي';
 
   const [otpInput, setOtpInput] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -417,23 +423,26 @@ export const DriverDeliveryView: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-amber-400 bg-amber-950/80 px-2.5 py-0.5 rounded-full border border-amber-800/60">
-                تطبيق المندوب الميداني • C-4091
+              <span className="text-xs font-semibold text-amber-400 bg-amber-950/80 px-2.5 py-0.5 rounded-full border border-amber-800/60 font-mono">
+                كابتن التوصيل • {driverCode}
               </span>
               <span className="text-[11px] text-slate-400 font-mono">
-                إسلام عامر • فان كهربائية EV-04
+                {driverVehicle} • {currentUser?.phone || '+20 100 000 0000'}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white font-['Cairo'] tracking-tight">
-              {currentOrder ? `توصيل شحنة للصندوق الذكي #${currentOrder.id}` : 'لوحة مهام التوصيل الميداني'}
+              مرحبًا بك، {driverName}
             </h1>
-            {currentOrder && (
-              <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                الوجهة: <span className="text-amber-300 font-bold">{currentOrder.smartBoxId}</span> •{' '}
-                {currentOrder.deliveryAddress || 'الفيلا 14 - جنوب الأكاديمية، التجمع الخامس'}
-              </p>
-            )}
+            <p className="text-xs sm:text-sm text-slate-400">
+              {currentOrder ? (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-amber-400 inline" />
+                  مهمة نشطة للصندوق الذكي: <span className="text-amber-300 font-bold">{currentOrder.smartBoxId || 'BOX-102'}</span> • {currentOrder.deliveryAddress || 'التجمع الخامس'}
+                </span>
+              ) : (
+                'لوحة مهام التوصيل الميداني واستلام الطرود والصناديق الذكية'
+              )}
+            </p>
           </div>
 
           <div className="flex flex-col sm:items-end gap-2">

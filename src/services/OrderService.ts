@@ -549,7 +549,8 @@ export class MockOrderService implements IOrderService {
       return { success: false, message: 'صلاحية إسناد المندوب متاحة للتاجر أو إدارة المنصة فقط.' };
     }
 
-    const driver = INITIAL_DRIVERS.find((d) => d.id === driverId);
+    const customDrivers = loadFromStorage<any[]>('tawseel_custom_drivers', []);
+    const driver = INITIAL_DRIVERS.find((d) => d.id === driverId) || customDrivers.find((d) => d.id === driverId);
     if (!driver) {
       return { success: false, message: 'المندوب المحدد غير موجود في النظام.' };
     }

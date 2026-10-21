@@ -56,9 +56,46 @@ export const MerchantDashboard: React.FC = () => {
   } = useApp();
 
   const { currentUser, currentDemoMerchantId, switchDemoMerchant, isDemoMode } = useAuth();
+  const isRealMerchant =
+    currentUser?.role === 'MERCHANT' &&
+    (!isDemoMode || (typeof currentUser.id === 'string' && !currentUser.id.startsWith('merch-')));
   const currentMerchantId =
     (currentUser?.role === 'MERCHANT' ? currentUser.id : null) || currentDemoMerchantId;
-  const currentMerchant = currentMerchantId ? merchants.find((m) => m.id === currentMerchantId) : undefined;
+
+  const merchantRecord = currentMerchantId ? merchants.find((m) => m.id === currentMerchantId) : undefined;
+  const resolvedBusinessName =
+    merchantRecord?.businessName ||
+    merchantRecord?.name ||
+    (currentUser?.role === 'MERCHANT' && currentUser.details?.includes('متجر:')
+      ? currentUser.details.split('•')[0].replace('متجر:', '').trim()
+      : undefined) ||
+    currentUser?.name ||
+    'متجر معتمد';
+
+  const currentMerchant = currentMerchantId
+    ? merchantRecord ||
+      (currentUser?.role === 'MERCHANT'
+        ? {
+            id: currentMerchantId,
+            name: resolvedBusinessName,
+            businessName: resolvedBusinessName,
+            ownerName: currentUser.name,
+            category: 'متجر معتمد',
+            rating: 5.0,
+            address: currentUser.details?.includes('•') ? currentUser.details.split('•')[1].trim() : (currentUser.details || 'القاهرة - الحي الخامس'),
+            phone: currentUser.phone || '+20 100 000 0000',
+            phoneNumbers: [currentUser.phone || '+20 100 000 0000'],
+            deliveryAvailable: true,
+            workingHours: '10:00 ص - 11:00 م',
+            isOpen: true,
+            storePhotos: ['https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800'],
+            shelfPhotos: [],
+            featurePhotos: [],
+            ownerPhoto: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=400',
+            menuPhotos: [],
+          }
+        : undefined)
+    : undefined;
   const currentOption =
     DEMO_MERCHANT_OPTIONS.find((opt) => opt.id === currentMerchantId) || DEMO_MERCHANT_OPTIONS[0];
 
@@ -129,101 +166,103 @@ export const MerchantDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-150">
-      {/* DEMO MERCHANT ACCOUNT SELECTOR — DEMO-ONLY */}
-      <div
-        id="demo-merchant-selector-card"
-        className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-500/40 p-4 sm:p-5 shadow-xl space-y-3.5"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <Store className="w-5 h-5" />
+      {/* DEMO MERCHANT ACCOUNT SELECTOR — VISIBLE ONLY IN DEMO MODE FOR DEMO ACCOUNTS */}
+      {isDemoMode && !isRealMerchant && (
+        <div
+          id="demo-merchant-selector-card"
+          className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-500/40 p-4 sm:p-5 shadow-xl space-y-3.5"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Store className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm sm:text-base font-bold text-white font-['Cairo']">
+                    حساب التاجر للتجربة
+                  </h2>
+                  <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/90 px-2 py-0.5 rounded-full border border-emerald-800/60 font-mono">
+                    Demo Merchant Simulator
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  تبديل متجر العرض التوضيحي لمحاكاة الطلبات والعمليات بعزل أمني مستقل
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold text-white font-['Cairo']">
-                  حساب التاجر للتجربة
-                </h2>
-                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/90 px-2 py-0.5 rounded-full border border-emerald-800/60 font-mono">
-                  Demo Merchant Simulator
+
+            {/* Current Selected Merchant Display */}
+            <div
+              id="current-demo-merchant-indicator"
+              className="flex items-center gap-2.5 bg-slate-950 px-3.5 py-2 rounded-xl border border-emerald-500/30 self-start sm:self-auto shrink-0 shadow-inner"
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div className="text-right">
+                <span className="text-[10px] text-slate-400 block leading-tight font-medium">
+                  حساب التاجر الحالي:
+                </span>
+                <span className="text-xs sm:text-sm font-black text-emerald-400 font-['Cairo']">
+                  {currentOption.shortName}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">
-                تبديل متجر العرض التوضيحي لمحاكاة الطلبات والعمليات بعزل أمني مستقل
-              </p>
             </div>
           </div>
 
-          {/* Current Selected Merchant Display */}
-          <div
-            id="current-demo-merchant-indicator"
-            className="flex items-center gap-2.5 bg-slate-950 px-3.5 py-2 rounded-xl border border-emerald-500/30 self-start sm:self-auto shrink-0 shadow-inner"
-          >
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block leading-tight font-medium">
-                حساب التاجر الحالي:
-              </span>
-              <span className="text-xs sm:text-sm font-black text-emerald-400 font-['Cairo']">
-                {currentOption.shortName}
-              </span>
-            </div>
+          {/* Dropdown Selector */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <label
+              htmlFor="demo-merchant-account-select"
+              className="text-xs font-bold text-slate-300 shrink-0"
+            >
+              حساب التاجر للتجربة:
+            </label>
+            <select
+              id="demo-merchant-account-select"
+              value={currentMerchantId}
+              onChange={(e) => switchDemoMerchant(e.target.value)}
+              className="flex-1 bg-slate-950 border border-slate-700 hover:border-emerald-500 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-3.5 py-2.5 font-medium outline-none transition-all cursor-pointer shadow-sm"
+            >
+              {DEMO_MERCHANT_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id} className="bg-slate-900 text-white py-1">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Mobile & Touch-Friendly Quick Selector Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 pt-1">
+            {DEMO_MERCHANT_OPTIONS.map((opt) => {
+              const isSelected = opt.id === currentMerchantId;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  id={`demo-merchant-chip-${opt.id}`}
+                  onClick={() => switchDemoMerchant(opt.id)}
+                  className={`p-2.5 rounded-xl text-right transition-all border cursor-pointer ${
+                    isSelected
+                      ? 'bg-emerald-950/80 border-emerald-500 text-white shadow-md shadow-emerald-950/60 ring-1 ring-emerald-500/50'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 hover:bg-slate-850'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-mono text-slate-500 font-bold">{opt.id}</span>
+                    {isSelected ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
+                    )}
+                  </div>
+                  <p className="text-xs font-bold text-slate-100 truncate">{opt.shortName}</p>
+                  <p className="text-[10px] text-slate-400 truncate mt-0.5">{opt.nameEn}</p>
+                </button>
+              );
+            })}
           </div>
         </div>
-
-        {/* Dropdown Selector */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          <label
-            htmlFor="demo-merchant-account-select"
-            className="text-xs font-bold text-slate-300 shrink-0"
-          >
-            حساب التاجر للتجربة:
-          </label>
-          <select
-            id="demo-merchant-account-select"
-            value={currentMerchantId}
-            onChange={(e) => switchDemoMerchant(e.target.value)}
-            className="flex-1 bg-slate-950 border border-slate-700 hover:border-emerald-500 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-3.5 py-2.5 font-medium outline-none transition-all cursor-pointer shadow-sm"
-          >
-            {DEMO_MERCHANT_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id} className="bg-slate-900 text-white py-1">
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Mobile & Touch-Friendly Quick Selector Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 pt-1">
-          {DEMO_MERCHANT_OPTIONS.map((opt) => {
-            const isSelected = opt.id === currentMerchantId;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                id={`demo-merchant-chip-${opt.id}`}
-                onClick={() => switchDemoMerchant(opt.id)}
-                className={`p-2.5 rounded-xl text-right transition-all border cursor-pointer ${
-                  isSelected
-                    ? 'bg-emerald-950/80 border-emerald-500 text-white shadow-md shadow-emerald-950/60 ring-1 ring-emerald-500/50'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 hover:bg-slate-850'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-mono text-slate-500 font-bold">{opt.id}</span>
-                  {isSelected ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
-                  )}
-                </div>
-                <p className="text-xs font-bold text-slate-100 truncate">{opt.shortName}</p>
-                <p className="text-[10px] text-slate-400 truncate mt-0.5">{opt.nameEn}</p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      )}
 
       {/* Top Merchant Identity & Metrics Banner */}
       <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-[#122b27] border border-emerald-900/60 p-5 shadow-xl">
@@ -231,17 +270,19 @@ export const MerchantDashboard: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-full border border-emerald-800/60">
-                بوابة التاجر • إدارة دورة حياة الطلبات الموحدة
+                {isRealMerchant ? 'حساب تاجر معتمد وموثق' : 'بوابة التاجر • إدارة دورة حياة الطلبات'}
               </span>
               <span className="text-[11px] text-slate-400 font-mono">
-                {orders.length} طلبات مسجلة بالنظام
+                {currentUser?.email ? currentUser.email : `${orders.length} طلبات مسجلة`}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white font-['Cairo'] tracking-tight">
-              {currentMerchant.name}
+              مرحبًا بك، {currentMerchant.businessName || currentMerchant.name}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400">
-              {currentMerchant.address} • متصل مباشرة بمنصة 3al-BaB (عالباب) للإيداع بالصناديق الذكية
+              {currentMerchant.businessName && currentMerchant.businessName !== currentMerchant.name ? `${currentMerchant.businessName} • ` : ''}
+              {currentMerchant.ownerName && currentMerchant.ownerName !== (currentMerchant.businessName || currentMerchant.name) ? `إدارة: ${currentMerchant.ownerName} • ` : ''}
+              {currentMerchant.address || 'القاهرة - الحي الخامس'} • متصل بقاعدة بيانات 3al-BaB
             </p>
           </div>
 

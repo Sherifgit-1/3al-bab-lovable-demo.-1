@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   Users,
   Store,
@@ -23,11 +24,12 @@ import {
 
 export const AdminDirectory: React.FC = () => {
   const { setAdminView, orders, merchants, drivers, boxes } = useApp();
+  const { customAccounts } = useAuth();
   const [activeTab, setActiveTab] = useState<'CUSTOMERS' | 'MERCHANTS' | 'DRIVERS' | 'ORDERS'>('CUSTOMERS');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Derived customers list from boxes and orders
-  const customers = [
+  // Derived customers list combining mock customers and real registered custom accounts
+  const baseCustomers = [
     {
       id: 'cust-1',
       name: 'أحمد مصطفى',
@@ -59,6 +61,21 @@ export const AdminDirectory: React.FC = () => {
       totalOrders: 9,
     },
   ];
+
+  const registeredCustomers = customAccounts
+    .filter((a) => a.role === 'CUSTOMER')
+    .map((a) => ({
+      id: a.user?.id || a.email,
+      name: a.user?.name || a.email,
+      phone: a.user?.phone || a.phone || '+20 100 000 0000',
+      address: a.address || a.user?.details || 'التجمع الخامس، القاهرة',
+      primaryBoxId: 'BOX-102',
+      registeredDate: a.updatedAt ? a.updatedAt.slice(0, 10) : '2026-10-20',
+      status: 'VERIFIED',
+      totalOrders: orders.filter((o) => o.customerId === (a.user?.id || a.email)).length,
+    }));
+
+  const customers = [...registeredCustomers, ...baseCustomers];
 
   const filteredCustomers = customers.filter(
     (c) => c.name.includes(searchQuery) || c.phone.includes(searchQuery) || c.primaryBoxId.includes(searchQuery)

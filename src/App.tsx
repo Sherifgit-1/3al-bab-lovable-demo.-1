@@ -40,7 +40,7 @@ import { AdminAuditLogs } from './components/admin/AdminAuditLogs';
 import { AdminDirectory } from './components/admin/AdminDirectory';
 import { ToastNotifications } from './components/common/ToastNotifications';
 
-import { Cpu, ShieldAlert, X } from 'lucide-react';
+import { Cpu, ShieldAlert, X, Box, RefreshCw } from 'lucide-react';
 import { ActorRole } from './types';
 
 const MainContent: React.FC = () => {
@@ -56,9 +56,14 @@ const MainContent: React.FC = () => {
   const {
     isAuthenticated,
     currentUser,
+    isProfileLoading,
+    profileError,
+    refreshProfile,
+    logout,
     unauthorizedNotice,
     setUnauthorizedNotice,
     isDemoMode,
+    hideDemoAccounts,
   } = useAuth();
 
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
@@ -115,6 +120,65 @@ const MainContent: React.FC = () => {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [currentUser, setUnauthorizedNotice]);
 
+  // Loading state while verifying identity and retrieving profile from database
+  if (isProfileLoading) {
+    return (
+      <div
+        className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center font-['Cairo'] antialiased p-6 text-center select-none"
+        dir="rtl"
+      >
+        <div className="relative mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-xl shadow-cyan-500/20 border border-cyan-400/40 animate-pulse">
+            <Box className="w-8 h-8 text-white" />
+          </div>
+          <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 border-2 border-slate-950 animate-ping" />
+        </div>
+        <h2 className="text-xl font-black text-white mb-2 tracking-tight">3al-BaB • منصة عالباب الذكية</h2>
+        <p className="text-xs text-slate-400 mb-5 max-w-sm">
+          جارٍ استرجاع الملف الشخصي والتحقق من هوية الحساب المعتمدة...
+        </p>
+        <div className="w-48 h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+          <div className="w-full h-full bg-gradient-to-r from-cyan-500 to-emerald-400 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  // Explicit recovery screen if authenticated but profile record cannot be found
+  if (isAuthenticated && !currentUser) {
+    return (
+      <div
+        className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center font-['Cairo'] antialiased p-6 text-center"
+        dir="rtl"
+      >
+        <div className="w-full max-w-md p-8 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <h2 className="text-lg font-bold text-white font-['Cairo']">تعذر استرجاع الملف الشخصي</h2>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            تم تسجيل الدخول بنجاح ولكن لم يتم العثور على سجل الملف الشخصي لهذا الحساب، أو تعذر الاتصال ببيانات المستخدم.
+          </p>
+          <div className="flex items-center gap-3 pt-3">
+            <button
+              onClick={refreshProfile}
+              className="flex-1 py-2.5 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>إعادة المحاولة</span>
+            </button>
+            <button
+              onClick={logout}
+              className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+            >
+              تسجيل الخروج
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // If user is not authenticated, show professional demo Login Screen
   if (!isAuthenticated || !currentUser) {
     return <LoginScreen />;
@@ -128,8 +192,8 @@ const MainContent: React.FC = () => {
       {/* Top Main Navigation (No general role switcher in normal UI) */}
       <Navbar onOpenHardwareModal={() => setIsHardwareModalOpen(true)} />
 
-      {/* Guided 15-Step Full Delivery Workflow Bar - visible only in Demo / Developer Mode */}
-      {isDemoMode && <DemoWorkflowBar />}
+      {/* Guided 15-Step Full Delivery Workflow Bar - visible only in Demo Mode when demo accounts are enabled */}
+      {isDemoMode && !hideDemoAccounts && <DemoWorkflowBar />}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-8 pb-24 md:pb-8">

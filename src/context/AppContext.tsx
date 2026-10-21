@@ -242,8 +242,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_ORDER_ID, null)
   );
   const [boxes, setBoxes] = useState<SmartBox[]>(() => smartBoxService.getAllBoxesSync());
-  const [merchants] = useState<Merchant[]>(INITIAL_MERCHANTS);
-  const [drivers] = useState<Driver[]>(INITIAL_DRIVERS);
+  const [merchants, setMerchants] = useState<Merchant[]>(() => {
+    const custom = loadFromStorage<Merchant[]>('tawseel_custom_merchants', []);
+    return [...INITIAL_MERCHANTS, ...custom];
+  });
+  const [drivers, setDrivers] = useState<Driver[]>(() => {
+    const customDrivers = loadFromStorage<Driver[]>('tawseel_custom_drivers', []);
+    return [...INITIAL_DRIVERS, ...customDrivers];
+  });
   const [products] = useState<Product[]>(INITIAL_PRODUCTS);
   const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(() =>
     loadFromStorage<string | null>(DEMO_STORAGE_KEYS.ACTIVE_MERCHANT_ID, 'merch-5')
@@ -402,6 +408,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     saveToStorage(DEMO_STORAGE_KEYS.DRIVER_STEP, driverStep);
   }, [driverStep]);
+
+  // Synchronize merchants & drivers when currentUser or custom records change
+  useEffect(() => {
+    const customMerchants = loadFromStorage<Merchant[]>('tawseel_custom_merchants', []);
+    const mergedMerchants = [...INITIAL_MERCHANTS];
+    for (const cm of customMerchants) {
+      const idx = mergedMerchants.findIndex((m) => m.id === cm.id);
+      if (idx >= 0) mergedMerchants[idx] = cm;
+      else mergedMerchants.push(cm);
+    }
+    if (currentUser?.role === 'MERCHANT' && currentUser.id) {
+      const exists = mergedMerchants.some((m) => m.id === currentUser.id);
+      if (!exists) {
+        const userMerch: Merchant = {
+          id: currentUser.id,
+          name: currentUser.name,
+          businessName: currentUser.name,
+          ownerName: currentUser.name,
+          category: 'متجر معتمد',
+          rating: 5.0,
+          address: currentUser.details || 'القاهرة - الحي الخامس',
+          phone: currentUser.phone || '+20 100 000 0000',
+          phoneNumbers: [currentUser.phone || '+20 100 000 0000'],
+          deliveryAvailable: true,
+          workingHours: '10:00 ص - 11:00 م',
+          isOpen: true,
+          storePhotos: ['https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800'],
+          shelfPhotos: [],
+          featurePhotos: [],
+          ownerPhoto: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=400',
+          menuPhotos: [],
+        };
+        mergedMerchants.push(userMerch);
+      }
+    }
+    setMerchants(mergedMerchants);
+
+    const customDrivers = loadFromStorage<Driver[]>('tawseel_custom_drivers', []);
+    const mergedDrivers = [...INITIAL_DRIVERS];
+    for (const cd of customDrivers) {
+      const idx = mergedDrivers.findIndex((d) => d.id === cd.id);
+      if (idx >= 0) mergedDrivers[idx] = cd;
+      else mergedDrivers.push(cd);
+    }
+    if (currentUser?.role === 'DRIVER' && currentUser.id) {
+      const exists = mergedDrivers.some((d) => d.id === currentUser.id);
+      if (!exists) {
+        const userDriver: Driver = {
+          id: currentUser.id,
+          name: currentUser.name,
+          code: currentUser.title?.match(/C-\d+/)?.[0] || 'C-4091',
+          phone: currentUser.phone || '+20 100 000 0000',
+          vehicle: 'سكوتر كهربائي ذكي',
+          rating: 5.0,
+          status: 'AVAILABLE',
+          currentLocation: {
+            lat: 30.015,
+            lng: 31.435,
+            description: 'بالقرب من الصندوق الذكي BOX-102',
+          },
+          assignedOrdersCount: 0,
+          completedTodayCount: 0,
+          todayEarnings: 0,
+        };
+        mergedDrivers.push(userDriver);
+      }
+    }
+    setDrivers(mergedDrivers);
+  }, [currentUser?.id, currentUser?.role, currentUser?.name]);
 
   // Continuous 1-second background watcher for 5-minute Smart Box authorization expiration
   useEffect(() => {
